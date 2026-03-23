@@ -1,5 +1,3 @@
-#![feature(int_from_ascii)]
-
 use std::{env, io::{Read, Write}, net::{TcpListener, UdpSocket}};
 
 const DEFAULT_LISTEN_PORT: u16 = 8080;
