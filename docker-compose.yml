@@ -1,0 +1,41 @@
+services:
+  c1:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - SEND_ADDRESS=127.0.0.1:8081
+      - LISTEN_PORT=8080
+      - OPERATION=inc
+      - SOCKETTYPE=udp
+    networks:
+      - A1_network
+
+  c2:
+    build: .
+    ports:
+      - "8081:8080"
+    environment:
+      - SEND_ADDRESS=127.0.0.1:8082
+      - LISTEN_PORT=8080
+      - OPERATION=shl
+      - SOCKETTYPE=udp
+    networks:
+      - A1_network
+
+  c3:
+    build: .
+    ports:
+      - "8082:8080"
+    environment:
+      - SEND_ADDRESS=127.0.0.1:8090
+      - LISTEN_PORT=8080
+      - OPERATION=dec
+      - SOCKETTYPE=udp
+    networks:
+      - A1_network
+    
+
+networks:
+  A1_network:
+    driver: bridge
