@@ -84,7 +84,8 @@ pub fn lex_number(mut input: &str) -> Option<i64> {
 
 fn run_udp(port: u16, operation: Operation, send_address: (IpAddr, u16)) -> std::io::Result<()> {
 
-    let socket = UdpSocket::bind(format!("127.0.0.1:{}", port))?;
+    let socket = UdpSocket::bind(format!("0.0.0.0:{}", port))?;
+    println!("Bound address: {:?}", socket.local_addr());
 
     loop {
         let mut buf = [0; 256];
@@ -96,14 +97,14 @@ fn run_udp(port: u16, operation: Operation, send_address: (IpAddr, u16)) -> std:
         let response = result.to_string();
         let response_buffer = response.as_bytes();
 
-        let send_socket = UdpSocket::bind("0.0.0.0:0")?;
-        send_socket.send_to(response_buffer, send_address)?;
+        socket.send_to(response_buffer, send_address)?;
     }
 }
 
 fn run_tcp(port: u16, operation: Operation, send_address: (IpAddr, u16)) -> std::io::Result<()> {
 
-    let socket = TcpListener::bind(format!("127.0.0.1:{}", port))?;
+    let socket = TcpListener::bind(format!("0.0.0.0:{}", port))?;
+    println!("Bound address: {:?}", socket.local_addr());
 
     loop {
 

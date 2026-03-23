@@ -4,8 +4,8 @@ COPY aufgabe1/ /usr/src/aufgabe1/
 
 
 WORKDIR /usr/src/aufgabe1
-RUN ls 
-RUN pwd
+EXPOSE 8080/udp
+EXPOSE 8090/udp
 #CMD ["cargo build"]
 RUN cargo install --path .
 CMD ["aufgabe1"]

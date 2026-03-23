@@ -3,42 +3,45 @@ services:
     build: .
     ports:
       - "8080:8080/udp"
-      - "8080:8080/tcp"
+    networks:
+      aufgabe1_net:
+        ipv4_address: 172.25.0.80
     environment:
-      - SEND_ADDRESS=127.0.0.1:8081
+      - SEND_ADDRESS=172.25.0.81:8080
       - LISTEN_PORT=8080
       - OPERATION=inc
       - SOCKETTYPE=udp
-    networks:
-      - A1_network
 
   c2:
     build: .
     ports:
       - "8081:8080/udp"
-      - "8080:8080/tcp"
+    networks:
+      aufgabe1_net:
+        ipv4_address: 172.25.0.81
     environment:
-      - SEND_ADDRESS=127.0.0.1:8082
+      - SEND_ADDRESS=172.25.0.82:8080
       - LISTEN_PORT=8080
       - OPERATION=shl
       - SOCKETTYPE=udp
-    networks:
-      - A1_network
 
   c3:
     build: .
     ports:
       - "8082:8080/udp"
-      - "8080:8080/tcp"
+      - "8090:8090/udp"
+    networks:
+      aufgabe1_net:
+        ipv4_address: 172.25.0.82
     environment:
       - SEND_ADDRESS=127.0.0.1:8090
       - LISTEN_PORT=8080
       - OPERATION=dec
       - SOCKETTYPE=udp
-    networks:
-      - A1_network
-    
 
 networks:
-  A1_network:
+  aufgabe1_net:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.25.0.0/16
