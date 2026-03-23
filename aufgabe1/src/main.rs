@@ -1,10 +1,6 @@
-<<<<<<< HEAD
 
 
-use std::{env, io::{Read, Write}, net::{TcpListener, UdpSocket}};
-=======
 use std::{env, io::{Read, Write}, net::{IpAddr, Ipv4Addr, TcpListener, TcpStream, UdpSocket}};
->>>>>>> 23f49de072c96dc1b67ea8c4c4cb9494dbc1914e
 
 const DEFAULT_LISTEN_PORT: u16 = 8080;
 const DEFAULT_SEND_ADDRESS: (IpAddr, u16) = (IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8090);
