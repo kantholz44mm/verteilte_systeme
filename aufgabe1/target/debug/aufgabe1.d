@@ -1,1 +1,0 @@
-/Users/unknownacc/Documents/Studium/Master/SS/Bausteine-verteilter-Systeme/Praktikum/verteilte_systeme/aufgabe1/target/debug/aufgabe1: /Users/unknownacc/Documents/Studium/Master/SS/Bausteine-verteilter-Systeme/Praktikum/verteilte_systeme/aufgabe1/src/main.rs
