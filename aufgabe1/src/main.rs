@@ -87,13 +87,14 @@ fn run_udp(port: u16, operation: Operation, send_address: (IpAddr, u16)) -> std:
     loop {
         let mut buf = [0; 256];
         let (amt, _src) = socket.recv_from(&mut buf)?;
+        println!("received {} bytes.", amt);
         let buf = &mut buf[..amt];
         let operand = lex_number(str::from_utf8(buf).unwrap_or("")).unwrap_or(0);
         let result = operation.execute_on_operand(operand);
         let response = result.to_string();
         let response_buffer = response.as_bytes();
 
-        let send_socket = UdpSocket::bind("127.0.0.1")?;
+        let send_socket = UdpSocket::bind("0.0.0.0:0")?;
         send_socket.send_to(response_buffer, send_address)?;
     }
 }
@@ -108,6 +109,7 @@ fn run_tcp(port: u16, operation: Operation, send_address: (IpAddr, u16)) -> std:
 
         let mut buf = [0; 256];
         let amt = src_stream.read(&mut buf)?;
+        println!("received {} bytes.", amt);
         let buf = &mut buf[..amt];
         let operand = lex_number(str::from_utf8(buf).unwrap_or("")).unwrap_or(0);
         let result = operation.execute_on_operand(operand);
@@ -140,6 +142,12 @@ fn main() -> std::io::Result<()> {
         let send_address = env::var("SEND_ADDRESS").map_or(DEFAULT_SEND_ADDRESS, |s| parse_address_port_pair(&s));
         let operation = env::var("OPERATION").map_or(DEFAULT_OPERATION, |p| Operation::from(p.as_str()));
         let socket_type = env::var("SOCKETTYPE").map_or(DEFAULT_SOCKETTYPE, |p| SocketType::from(p.as_str()));
+
+        println!("running with configuration:");
+        println!("LISTEN_PORT: {:?}", listen_port);
+        println!("SEND_ADDRESS: {:?}", send_address);
+        println!("OPERATION: {:?}", operation);
+        println!("SOCKETTYPE: {:?}", socket_type);
 
         let runner = if socket_type == SocketType::TCP { run_tcp } else { run_udp };
         loop {
