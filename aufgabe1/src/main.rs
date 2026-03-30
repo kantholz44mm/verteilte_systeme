@@ -107,7 +107,6 @@ fn run_tcp(port: u16, operation: Operation, send_address: (IpAddr, u16)) -> std:
     println!("Bound address: {:?}", socket.local_addr());
 
     loop {
-
         let (mut src_stream, _) = socket.accept()?;
 
         let mut buf = [0; 256];
@@ -120,6 +119,7 @@ fn run_tcp(port: u16, operation: Operation, send_address: (IpAddr, u16)) -> std:
         let response_buffer = response.as_bytes();
 
         let mut send_stream = TcpStream::connect(send_address)?;
+        send_stream.set_nodelay(true);
         send_stream.write(response_buffer)?;
         send_stream.flush();
     }

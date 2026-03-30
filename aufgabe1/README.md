@@ -78,47 +78,15 @@ Eine Zahl wird vom Host an den ersten Container (`c1`) gesendet, anschließend v
 
 ### UDP vs TCP
 
-**UDP** ist ein verbindungsloses Protokoll. Gesendete Pakete werden ohne Bestätigung übertragen, wodurch Verluste ignoriert werden. Dies ermöglicht eine schnelle Kommunikation mit geringer Latenz, jedoch ohne Garantie, dass Daten beim Empfänger ankommen.
-````
-UDP:
-Instanz A                    Instanz B
-    │                            │
-    │  UDP Paket senden          │
-    ├──────────────────────────► │
-    │                            │
-````
-UDP eignet sich für Anwendungen mit geringer Latenz, bei denen Datenverluste tolerierbar sind, z.B. Streaming oder Echtzeitkommunikation
+#### Unterschiede zwischen TCP/UDP in unserem Programm
 
----
+Grundsätzlich ist beides als synchrone Kommunikation implementiert (blockierende Sockets). Auch bei TCP wird lediglich mit `accept` eine Verbindung akzeptiert, deren Daten eingelesen und die berechneten Daten in einem weiteren Socket an den Ausgangspartner weitergeleitet. Die Lebensdauer beider Sockets ist nur sehr kurz. Das Startupverhalten bei TCP beinhaltet den Handshake, weshalb die initiale Verbindung etwas länger dauert. Bei UDP ist kein Handshake erforderlich, die Nachricht wird "direkt" gesendet und empfangen. TCP hat theoretisch noch den "Slow Start", bei dem die ersten Pakete mit verringerter Datenrate übertragen werden, was in dieser Anwendung nicht zum Tragen kommt, weil nur sehr kleine Datenmengen übertragen werden. Nagle's Algorithmus wird durch Setzen des Flags `TCP_NODELAY` und manuelles Flushing der Streams "eliminiert", dadurch kommt es auch hier nicht zu nennenswerten Verzögerungen.
 
-**TCP** ist verbindungsorientiert. Vor der Datenübertragung wird eine Verbindung aufgebaut, und der Empfang von Daten wird bestätigt. Dadurch wird sichergestellt, dass Daten vollständig und in der richtigen Reihenfolge ankommen.
+#### Eignung von TCP/UDP für verschiedene Anwendungen
+
+TCP eignet sich für die integrierte QoS, wodurch eine Auslieferung und der Empfang einer Nachricht bestätigt werden kann. Zudem wird garantiert, dass Nachrichten in der korrekten Reihenfolge ankommen. UDP hat diese Features nicht, ist dafür aber deutlich leichtgewichtiger. UDP kann verwendet werden, wenn der unbedingt korrekte Transfer nicht notwendig ist. Das ist z.B. der Fall bei sehr kurzlebigen Daten, i.e Audio-/Videostreams oder Positionsdaten in Multiplayer-Spielen. Ein einzelnes verlorenes Paket beeinträchtigt das Endergebnis nur minimal und ist daher verkraftbar. TCP sollte verwendet werden, wenn eine Empfangsbestätigung notwendig ist. Bei verteilten Systemen gibt es oft einen Replikationsparameter (Redundanzgrad), der entscheidet, wie viele Kopien eines Datums das System bereithalten soll. Je nach Höhe dieses Parameters kann es generell verkraftbar sein, ein einzelnes Paket zu verlieren.
 
 
-````
-TCP:
-Instanz A                    Instanz B
-    │                            │
-    │  SYN                       │
-    ├──────────────────────────► │
-    │  SYN-ACK                   │
-    │ ◄──────────────────────────┤
-    │  ACK                       │
-    ├──────────────────────────► │
-─ ─ |─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ │─ ─  Connection establishment
-    │                            │
-    │  Datenübertragung          │
-    ├──────────────────────────► │
-    │                            │
-    │  (Bestätigung).            │
-    │ ◄──────────────────────────┤
-````
-Eignet sich für Anwendungen, bei denen Zuverlässigkeit entscheidend ist, z.B. Datenbanken, Webanwendungen oder Dateiübertragungen.
+#### Auswirkung von Serialisierungsformat
 
-## TODO Beschreiben Sie kurz
-
-• die Unterschiede zwischen der Verwendung von TCP und UDP in Ihrem Pro-
-gramm in Bezug auf die **Containerkommunikation und Start-up Verhalten.**
-
-
-• wie sich ein Serialisierungsformat (z.B. JSON, Protobuf) auf die 
-Kommunikation zwischen Containern in dieser Aufgabe auswirken würde.
+Die Zahlen werden zwischen allen Teilnehmern als ASCII-Codierte Zahlenstrings serialisiert. Bei Textbasierten Formaten wie JSON wäre die Serialisierung ähnlich, Protobuf codiert Zahlen in einem Binärformat. Generell muss auf die korrekte Endianness bei der Übetragung geachtet werden, was aber bei ASCII-codierten Zahlenstrings kein Problem ist.
