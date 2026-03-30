@@ -94,7 +94,7 @@ fn run_udp(port: u16, operation: Operation, send_address: (IpAddr, u16)) -> std:
         let buf = &mut buf[..amt];
         let operand = lex_number(str::from_utf8(buf).unwrap_or("")).unwrap_or(0);
         let result = operation.execute_on_operand(operand);
-        let response = result.to_string();
+        let response = result.to_string() + "\n";
         let response_buffer = response.as_bytes();
 
         socket.send_to(response_buffer, send_address)?;
@@ -116,7 +116,7 @@ fn run_tcp(port: u16, operation: Operation, send_address: (IpAddr, u16)) -> std:
         let buf = &mut buf[..amt];
         let operand = lex_number(str::from_utf8(buf).unwrap_or("")).unwrap_or(0);
         let result = operation.execute_on_operand(operand);
-        let response = result.to_string();
+        let response = result.to_string() + "\n";
         let response_buffer = response.as_bytes();
 
         let mut send_stream = TcpStream::connect(send_address)?;
