@@ -1,9 +1,9 @@
 
 
-use std::{env, io::{Read, Write}, net::{IpAddr, Ipv4Addr, TcpListener, TcpStream, UdpSocket}};
+use std::{env, io::{Error, ErrorKind, Read, Write}, net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs, UdpSocket}};
 
-const DEFAULT_LISTEN_PORT: u16 = 8080;
-const DEFAULT_SEND_ADDRESS: (IpAddr, u16) = (IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8090);
+const DEFAULT_LISTEN_ADDRESS: &str = "0.0.0.0:8080";
+const DEFAULT_SEND_ADDRESS: &str = "127.0.0.1:8090";
 const DEFAULT_OPERATION: Operation = Operation::Increment;
 const DEFAULT_SOCKETTYPE: SocketType = SocketType::UDP;
 
@@ -56,105 +56,64 @@ impl Operation {
     }
 }
 
+fn run_udp(operation: Operation, listen_address: SocketAddr, send_address: SocketAddr) -> std::io::Result<()> {
 
-pub fn lex_number(mut input: &str) -> Option<i64> {
+    let socket = UdpSocket::bind(listen_address)?;
+    println!("Bound to address: {:?}", socket.local_addr());
 
-    let (sign, consumed_by_sign) = match input {
-        _ if input.starts_with('-') => (-1, 1),
-        _ if input.starts_with('+') => ( 1, 1),
-        _                           => ( 1, 0),
-    };
-
-    input = &input[consumed_by_sign..];
-
-    let (radix, consumed_by_radix) = match input {
-        _ if input.starts_with("0x") => (16, 2),
-        _ if input.starts_with("0b") => ( 2, 2),
-        _                            => (10, 0),
-    };
-
-    input = &input[consumed_by_radix..];
-
-    let consumed_by_number = input.chars().take_while(char::is_ascii_hexdigit).count();
-    let number = u64::from_str_radix(&input[..consumed_by_number], radix).ok()?;
-
-    Some(number as i64 * sign)
-}
-
-
-fn run_udp(port: u16, operation: Operation, send_address: (IpAddr, u16)) -> std::io::Result<()> {
-
-    let socket = UdpSocket::bind(format!("0.0.0.0:{}", port))?;
-    println!("Bound address: {:?}", socket.local_addr());
+    let mut buf = [0u8; 512];
 
     loop {
-        let mut buf = [0; 256];
         let (amt, _src) = socket.recv_from(&mut buf)?;
-        println!("received {} bytes.", amt);
-        let buf = &mut buf[..amt];
-        let operand = lex_number(str::from_utf8(buf).unwrap_or("")).unwrap_or(0);
+        let input = String::from_utf8_lossy(&buf[..amt]).into_owned();
+        
+        let operand = input.trim().parse::<i64>().map_err(|e| Error::new(ErrorKind::InvalidInput, e))?;
         let result = operation.execute_on_operand(operand);
         let response = result.to_string() + "\n";
-        let response_buffer = response.as_bytes();
-
-        socket.send_to(response_buffer, send_address)?;
+        
+        println!("Received '{}', answering '{}'!", &input.trim(), result);
+        socket.send_to(response.as_bytes(), send_address)?;
     }
 }
 
-fn run_tcp(port: u16, operation: Operation, send_address: (IpAddr, u16)) -> std::io::Result<()> {
+fn run_tcp(operation: Operation, listen_address: SocketAddr, send_address: SocketAddr) -> std::io::Result<()> {
 
-    let socket = TcpListener::bind(format!("0.0.0.0:{}", port))?;
-    println!("Bound address: {:?}", socket.local_addr());
+    let socket = TcpListener::bind(listen_address)?;
+    println!("Bound to address: {:?}", socket.local_addr());
 
     loop {
         let (mut src_stream, _) = socket.accept()?;
+        let mut input = String::new();
+        src_stream.read_to_string(&mut input)?;
 
-        let mut buf = [0; 256];
-        let amt = src_stream.read(&mut buf)?;
-        println!("received {} bytes.", amt);
-        let buf = &mut buf[..amt];
-        let operand = lex_number(str::from_utf8(buf).unwrap_or("")).unwrap_or(0);
+        let operand = input.trim().parse::<i64>().map_err(|e| Error::new(ErrorKind::InvalidInput, e))?;
         let result = operation.execute_on_operand(operand);
         let response = result.to_string() + "\n";
-        let response_buffer = response.as_bytes();
 
+        println!("Received '{}', answering '{}'!", &input.trim(), result);
         let mut send_stream = TcpStream::connect(send_address)?;
-        send_stream.set_nodelay(true);
-        send_stream.write(response_buffer)?;
-        send_stream.flush();
+        send_stream.set_nodelay(true)?; // disable nagle
+        send_stream.write_all(response.as_bytes())?;
+        send_stream.flush()?;
     }
 }
-
-fn parse_address_port_pair(input: &str) -> (IpAddr, u16) {
-    let tokens = input.split(":").collect::<Vec<&str>>();
-
-    if tokens.len() != 2 {
-        return DEFAULT_SEND_ADDRESS;
-    }
-
-    let address = tokens[0].parse::<IpAddr>().unwrap_or(DEFAULT_SEND_ADDRESS.0);
-    let port = tokens[1].parse::<u16>().unwrap_or(DEFAULT_SEND_ADDRESS.1);
-
-    (address, port)
-}
-
 
 fn main() -> std::io::Result<()> {
     {
-        let listen_port = env::var("LISTEN_PORT").map_or(DEFAULT_LISTEN_PORT, |p| u16::from_str_radix(&p, 10).unwrap_or(DEFAULT_LISTEN_PORT));
-        let send_address = env::var("SEND_ADDRESS").map_or(DEFAULT_SEND_ADDRESS, |s| parse_address_port_pair(&s));
+        let listen_address = env::var("LISTEN_ADDRESS").unwrap_or(String::from(DEFAULT_LISTEN_ADDRESS)).to_socket_addrs()?.next().unwrap();
+        let send_address = env::var("SEND_ADDRESS").unwrap_or(String::from(DEFAULT_SEND_ADDRESS)).to_socket_addrs()?.next().unwrap();
         let operation = env::var("OPERATION").map_or(DEFAULT_OPERATION, |p| Operation::from(p.as_str()));
         let socket_type = env::var("SOCKETTYPE").map_or(DEFAULT_SOCKETTYPE, |p| SocketType::from(p.as_str()));
 
         println!("running with configuration:");
-        println!("LISTEN_PORT: {:?}", listen_port);
+        println!("LISTEN_ADDRESS: {:?}", listen_address);
         println!("SEND_ADDRESS: {:?}", send_address);
         println!("OPERATION: {:?}", operation);
         println!("SOCKETTYPE: {:?}", socket_type);
 
         let runner = if socket_type == SocketType::TCP { run_tcp } else { run_udp };
         loop {
-            let result = runner(listen_port, operation, send_address);
+            let result = runner(operation, listen_address, send_address);
             println!("Runner exited with state: {:?}", result);
         }
     }

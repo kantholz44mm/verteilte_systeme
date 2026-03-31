@@ -13,42 +13,29 @@
 
 Das Deployment erfolgt über: ```docker compose up```
 
-**Wichtiger Hinweis**
-
-Docker muss so konfiguriert sein, dass Host Networking aktiviert ist.
-
-Dies kann in Docker Desktop unter folgendem Pfad eingestellt werden:
-
-```Settings → Resources → Network → Enable host networking```
-
-## Skript
-
-Rust Skript TODO
- 
-
 ## Architektur
 
 Die Anwendung besteht aus drei Containern, die miteinander kommunizieren und Daten schrittweise verarbeiten. Die Konfiguration erfolgt zentral über die `docker-compose.yml`, in der sowohl die Container als auch deren Umgebungsvariablen definiert sind.
 
 Jeder Container wird über Umgebungsvariablen gesteuert. Diese sind:
 
-- ``` SEND_ADDRESS```  gibt die Zieladresse (IP:Port) an, an die ein Container sein Ergebnis weiterleitet.
+- ``` SEND_ADDRESS```  gibt die Zieladresse (IP/Name:Port) an, an die ein Container sein Ergebnis weiterleitet.
 
-- ```LISTEN_PORT``` definiert den UDP-Port, auf dem der Container eingehende Nachrichten empfängt.
+- ```LISTEN_ADDRESS``` definiert die Adresse an, auf dem der Container eingehende Nachrichten empfängt (IP/Name:Port).
 
 - ```OPERATION``` legt fest, welche Verarbeitung durchgeführt wird (z. B. inc, dec, shl, shr).
 
-- ```SOCKETTYPE ```bestimmt das verwendete Protokoll, entweder udp oder tcp.
+- ```SOCKETTYPE ``` bestimmt das verwendete Protokoll, entweder udp oder tcp.
 
 ```
 Host ->  C1  ->  C2  ->  C3  -> Host
 ```
 
-| Container | ID (Name) |  Listen Port | Send Address |  Operation |
+| Container | ID (Name) |  Listen Address | Send Address |  Operation |
 |----------|----------|-------------|--------------|-----------|
-| c1 | verteilte_systeme-c1-1 | 8080 | 127.0.0.1:8081 |  inc |
-| c2 | verteilte_systeme-c2-1 | 8081 | 127.0.0.1:8082 |  shl |
-| c3 | verteilte_systeme-c3-1 | 8082 | 127.0.0.1:8090 |  dec |
+| c1 | verteilte_systeme-c1-1 | 0.0.0.0:8080 | c2:8080 |  inc |
+| c2 | verteilte_systeme-c2-1 | 0.0.0.0:8080 | c3:8080 |  shl |
+| c3 | verteilte_systeme-c3-1 | 0.0.0.0:8080 | host.docker.internal:8080 |  dec |
 
 
 | Operation | Beschreibung |
@@ -68,12 +55,12 @@ Eine Zahl wird vom Host an den ersten Container (`c1`) gesendet, anschließend v
 
 ### Befehle fürs Senden & Empfangen
 
+Angenommen, der erste Container hat die IP `172.17.0.4` (docker inspect ...):
+
 | Protokoll | Senden | Empfangen |
 |----------|--------|----------|
-| UDP | `echo "[Zahl]" \| netcat -u 127.0.0.1 8080` | `nc -ul 8090` |
-| TCP | `echo "[Zahl]" \| netcat 127.0.0.1 8080` | `nc -l 8090` |
-
-
+| UDP | `echo "[Zahl]" \| netcat -u 172.17.0.4 8080` | `nc -ul 8080` |
+| TCP | `echo "[Zahl]" \| netcat 172.17.0.4 8080` | `nc -l 8080` |
 
 
 ### UDP vs TCP
