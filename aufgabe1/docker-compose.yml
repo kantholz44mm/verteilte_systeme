@@ -7,7 +7,9 @@ services:
       - OPERATION=inc
       - SOCKETTYPE=udp
     extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - "host.docker.internal:172.19.0.1"
+    depends_on:
+      - c2
 
   c2:
     build: .
@@ -17,7 +19,9 @@ services:
       - OPERATION=shl
       - SOCKETTYPE=udp
     extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - "host.docker.internal:172.19.0.1"
+    depends_on:
+      - c3
 
   c3:
     build: .
@@ -27,4 +31,4 @@ services:
       - OPERATION=dec
       - SOCKETTYPE=udp
     extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - "host.docker.internal:172.19.0.1"

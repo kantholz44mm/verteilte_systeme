@@ -66,7 +66,7 @@ Angenommen, der erste Container hat die IP `172.17.0.4` (docker inspect ...):
 ### UDP vs TCP
 
 #### Unterschiede zwischen TCP/UDP in unserem Programm
-
+k
 Grundsätzlich ist beides als synchrone Kommunikation implementiert (blockierende Sockets). Auch bei TCP wird lediglich mit `accept` eine Verbindung akzeptiert, deren Daten eingelesen und die berechneten Daten in einem weiteren Socket an den Ausgangspartner weitergeleitet. Die Lebensdauer beider Sockets ist nur sehr kurz. Das Startupverhalten bei TCP beinhaltet den Handshake, weshalb die initiale Verbindung etwas länger dauert. Bei UDP ist kein Handshake erforderlich, die Nachricht wird "direkt" gesendet und empfangen. TCP hat theoretisch noch den "Slow Start", bei dem die ersten Pakete mit verringerter Datenrate übertragen werden, was in dieser Anwendung nicht zum Tragen kommt, weil nur sehr kleine Datenmengen übertragen werden. Nagle's Algorithmus wird durch Setzen des Flags `TCP_NODELAY` und manuelles Flushing der Streams "eliminiert", dadurch kommt es auch hier nicht zu nennenswerten Verzögerungen.
 
 #### Eignung von TCP/UDP für verschiedene Anwendungen

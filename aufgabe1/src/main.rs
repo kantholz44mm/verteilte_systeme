@@ -1,6 +1,6 @@
 
 
-use std::{env, io::{Error, ErrorKind, Read, Write}, net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs, UdpSocket}};
+use std::{env, io::{BufRead, BufReader, Error, ErrorKind, Read, Write}, net::{Shutdown, SocketAddr, TcpListener, TcpStream, ToSocketAddrs, UdpSocket}};
 
 const DEFAULT_LISTEN_ADDRESS: &str = "0.0.0.0:8080";
 const DEFAULT_SEND_ADDRESS: &str = "127.0.0.1:8090";
@@ -82,19 +82,24 @@ fn run_tcp(operation: Operation, listen_address: SocketAddr, send_address: Socke
     println!("Bound to address: {:?}", socket.local_addr());
 
     loop {
-        let (mut src_stream, _) = socket.accept()?;
         let mut input = String::new();
-        src_stream.read_to_string(&mut input)?;
+        {
+            let (src_stream, _) = socket.accept()?;
+            let mut reader = BufReader::new(src_stream);
+            reader.read_line(&mut input)?;
+        }
 
         let operand = input.trim().parse::<i64>().map_err(|e| Error::new(ErrorKind::InvalidInput, e))?;
         let result = operation.execute_on_operand(operand);
         let response = result.to_string() + "\n";
 
         println!("Received '{}', answering '{}'!", &input.trim(), result);
-        let mut send_stream = TcpStream::connect(send_address)?;
-        send_stream.set_nodelay(true)?; // disable nagle
-        send_stream.write_all(response.as_bytes())?;
-        send_stream.flush()?;
+        {
+            let mut send_stream = TcpStream::connect(send_address)?;
+            send_stream.set_nodelay(true)?; // disable nagle
+            send_stream.write_all(response.as_bytes())?;
+            send_stream.flush()?;
+        }
     }
 }
 
