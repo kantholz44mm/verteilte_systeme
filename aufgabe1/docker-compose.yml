@@ -5,11 +5,11 @@ services:
       - SEND_ADDRESS=c2:8080
       - LISTEN_ADDRESS=0.0.0.0:9000
       - OPERATION=inc
-      - SOCKETTYPE=tcp
+      - SOCKETTYPE=udp
     depends_on:
       - c2
     ports:
-      - "9000:9000/tcp"
+      - "9000:9000/udp"
 
   c2:
     build: .
@@ -17,7 +17,7 @@ services:
       - SEND_ADDRESS=c3:8080
       - LISTEN_ADDRESS=0.0.0.0:8080
       - OPERATION=shl
-      - SOCKETTYPE=tcp
+      - SOCKETTYPE=udp
     depends_on:
       - c3
 
@@ -27,6 +27,6 @@ services:
       - SEND_ADDRESS=host.docker.internal:9001
       - LISTEN_ADDRESS=0.0.0.0:8080
       - OPERATION=dec
-      - SOCKETTYPE=tcp
+      - SOCKETTYPE=udp
     extra_hosts:
       - "host.docker.internal:172.19.0.1"
