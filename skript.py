@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+
+Dieses Skript ist KI Generiert.
+
 import socket
 import time
 import threading
@@ -7,15 +10,15 @@ import threading
 # 🔧 KONFIGURATION
 # =========================
 
-PROTOCOL = "udp"        # "udp" oder "tcp"
+PROTOCOL = "tcp"        # "udp" oder "tcp"
 
-# Server
+# Recive
 BIND_IP = "127.0.0.1"
-BIND_PORT = 8090
+BIND_PORT = 9001
 
-# Client
+# Send
 TARGET_IP = "127.0.0.1"
-TARGET_PORT = 8080
+TARGET_PORT = 9000
 
 MESSAGE = "123456"
 WAIT_FOR_REPLY = True
