@@ -1,234 +1,227 @@
 from __future__ import annotations
 
-import json
+import asyncio
 import os
-import threading
-from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
-from typing import Dict, Tuple
+from typing import Any, Dict, List, Optional
 
-from .rpc import process_jsonrpc_bytes
+import uvicorn
+from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
+from fastapi.responses import RedirectResponse
+
+from .rpc import process_jsonrpc_bytes_with_notifications
+from .schemas import HealthResponse, OperationListResponse, OperationResponse, OperationUpdateRequest
 from .state import MathFactoryState, UnknownOperationError
-from .websocket import ThreadedWebSocketServer, WebSocketRequestHandler
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-OPENAPI_PATH = PROJECT_ROOT / "openapi.json"
+class ConnectionManager:
+    def __init__(self) -> None:
+        self._connections: Dict[str, List[WebSocket]] = {}
+        self._lock = asyncio.Lock()
 
+    async def add(self, session_id: str, websocket: WebSocket) -> None:
+        async with self._lock:
+            connections = self._connections.setdefault(session_id, [])
+            if websocket not in connections:
+                connections.append(websocket)
 
-class ReusableThreadingHTTPServer(ThreadingHTTPServer):
-    allow_reuse_address = True
-
-
-def _make_rest_handler(openapi_path: Path):
-    class RestHandler(BaseHTTPRequestHandler):
-        server_version = "MathFactoryREST/1.0"
-
-        def do_GET(self) -> None:
-            path, operation_name = self._resolve_path()
-            if path == "/":
-                self._send_html(HTTPStatus.OK, self._docs_html())
+    async def remove(self, session_id: str, websocket: WebSocket) -> None:
+        async with self._lock:
+            connections = self._connections.get(session_id)
+            if not connections:
                 return
-            if path == "/docs":
-                self._send_html(HTTPStatus.OK, self._docs_html())
-                return
-            if path == "/health":
-                self._send_json(HTTPStatus.OK, {"status": "ok"})
-                return
-            if path == "/openapi.json":
-                self._send_bytes(HTTPStatus.OK, openapi_path.read_bytes(), "application/json")
-                return
-            if path == "/operations":
-                self._send_json(HTTPStatus.OK, {"operations": self.server.state.list_operations()})
-                return
-            if operation_name:
-                try:
-                    self._send_json(HTTPStatus.OK, self.server.state.get_operation(operation_name))
-                except UnknownOperationError:
-                    self._send_json(HTTPStatus.NOT_FOUND, {"error": "Unknown operation."})
-                return
-            self._send_json(HTTPStatus.NOT_FOUND, {"error": "Resource not found."})
+            self._connections[session_id] = [connection for connection in connections if connection is not websocket]
+            if not self._connections[session_id]:
+                self._connections.pop(session_id, None)
 
-        def do_PATCH(self) -> None:
-            self._handle_operation_update()
+    async def broadcast(self, session_id: str, payload: Dict[str, Any]) -> None:
+        async with self._lock:
+            targets = list(self._connections.get(session_id, []))
 
-        def do_PUT(self) -> None:
-            self._handle_operation_update()
-
-        def log_message(self, format: str, *args) -> None:
-            return
-
-        def _handle_operation_update(self) -> None:
-            _, operation_name = self._resolve_path()
-            if not operation_name:
-                self._send_json(HTTPStatus.NOT_FOUND, {"error": "Unknown operation."})
-                return
-
-            payload = self._read_json_body()
-            if payload is None:
-                return
-
+        stale: List[WebSocket] = []
+        for websocket in targets:
             try:
-                updated = self.server.state.update_operation(
-                    operation_name,
-                    cost=payload.get("cost"),
-                    enabled=payload.get("enabled"),
-                )
-            except UnknownOperationError:
-                self._send_json(HTTPStatus.NOT_FOUND, {"error": "Unknown operation."})
-                return
-            except ValueError as error:
-                self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
-                return
+                await websocket.send_json(payload)
+            except Exception:
+                stale.append(websocket)
 
-            self._send_json(HTTPStatus.OK, updated)
-
-        def _resolve_path(self) -> Tuple[str, str]:
-            path = self.path.split("?", 1)[0]
-            if path.startswith("/operations/"):
-                return "/operations/{name}", path.rsplit("/", 1)[-1]
-            return path, ""
-
-        def _read_json_body(self):
-            length = int(self.headers.get("Content-Length", "0"))
-            data = self.rfile.read(length) if length else b"{}"
-            try:
-                return json.loads(data.decode("utf-8"))
-            except (UnicodeDecodeError, json.JSONDecodeError):
-                self._send_json(HTTPStatus.BAD_REQUEST, {"error": "Request body must contain valid JSON."})
-                return None
-
-        def _send_json(self, status: HTTPStatus, payload: Dict[str, object]) -> None:
-            body = json.dumps(payload, indent=2).encode("utf-8")
-            self._send_bytes(status, body, "application/json")
-
-        def _send_html(self, status: HTTPStatus, html: str) -> None:
-            self._send_bytes(status, html.encode("utf-8"), "text/html; charset=utf-8")
-
-        def _send_bytes(self, status: HTTPStatus, body: bytes, content_type: str) -> None:
-            self.send_response(status)
-            self.send_header("Content-Type", content_type)
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-
-        @staticmethod
-        def _docs_html() -> str:
-            return """<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <title>Math Factory REST API</title>
-  </head>
-  <body>
-    <h1>Math Factory REST API</h1>
-    <p>The OpenAPI description is available at <a href="/openapi.json">/openapi.json</a>.</p>
-    <h2>Available endpoints</h2>
-    <ul>
-      <li><code>GET /health</code></li>
-      <li><code>GET /operations</code></li>
-      <li><code>GET /operations/{name}</code></li>
-      <li><code>PATCH /operations/{name}</code></li>
-      <li><code>PUT /operations/{name}</code></li>
-    </ul>
-    <h2>Example</h2>
-    <pre>curl -X PATCH http://localhost:8080/operations/power \
-  -H 'Content-Type: application/json' \
-  -d '{"cost": 900, "enabled": true}'</pre>
-  </body>
-</html>
-"""
-
-    return RestHandler
+        for websocket in stale:
+            await self.remove(session_id, websocket)
 
 
-class RpcHandler(BaseHTTPRequestHandler):
-    server_version = "MathFactoryRPC/1.0"
-
-    def do_POST(self) -> None:
-        path = self.path.split("?", 1)[0]
-        if path not in {"/", "/rpc"}:
-            self._send_json(HTTPStatus.NOT_FOUND, {"error": "Resource not found."})
-            return
-
-        length = int(self.headers.get("Content-Length", "0"))
-        payload = self.rfile.read(length)
-        response = process_jsonrpc_bytes(self.server.state, payload)
-        if response is None:
-            self.send_response(HTTPStatus.NO_CONTENT)
-            self.end_headers()
-            return
-
-        self.send_response(HTTPStatus.OK)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(response)))
-        self.end_headers()
-        self.wfile.write(response)
-
-    def do_GET(self) -> None:
-        if self.path.split("?", 1)[0] == "/health":
-            self._send_json(HTTPStatus.OK, {"status": "ok"})
-            return
-        self._send_json(HTTPStatus.NOT_FOUND, {"error": "Resource not found."})
-
-    def log_message(self, format: str, *args) -> None:
-        return
-
-    def _send_json(self, status: HTTPStatus, payload: Dict[str, object]) -> None:
-        body = json.dumps(payload, indent=2).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+def _model_dump(model: Any) -> Dict[str, Any]:
+    if hasattr(model, "model_dump"):
+        return model.model_dump(exclude_none=True)
+    return model.dict(exclude_none=True)
 
 
-def _start_thread(server, label: str) -> threading.Thread:
-    thread = threading.Thread(target=server.serve_forever, name=label, daemon=True)
-    thread.start()
-    return thread
+async def _emit_notifications(manager: ConnectionManager, notifications: List[Dict[str, Any]]) -> None:
+    for notification in notifications:
+        session_id = notification.get("session_id")
+        if isinstance(session_id, str):
+            await manager.broadcast(session_id, notification)
 
 
-def main() -> None:
+def create_rest_app(state: MathFactoryState) -> FastAPI:
+    app = FastAPI(
+        title="Math Factory REST API",
+        version="1.0.0",
+        description="REST API to manage enabled operations and their costs.",
+    )
+
+    @app.get("/", include_in_schema=False)
+    async def root() -> RedirectResponse:
+        return RedirectResponse(url="/docs")
+
+    @app.get("/health", response_model=HealthResponse)
+    async def health() -> HealthResponse:
+        return HealthResponse()
+
+    @app.get("/operations", response_model=OperationListResponse)
+    async def list_operations() -> OperationListResponse:
+        operations = [OperationResponse(**operation) for operation in state.list_operations()]
+        return OperationListResponse(operations=operations)
+
+    @app.get("/operations/{name}", response_model=OperationResponse)
+    async def get_operation(name: str) -> OperationResponse:
+        try:
+            return OperationResponse(**state.get_operation(name))
+        except UnknownOperationError as error:
+            raise HTTPException(status_code=404, detail="Unknown operation.") from error
+
+    @app.patch("/operations/{name}", response_model=OperationResponse)
+    @app.put("/operations/{name}", response_model=OperationResponse)
+    async def update_operation(name: str, update: OperationUpdateRequest) -> OperationResponse:
+        try:
+            updated = state.update_operation(name, **_model_dump(update))
+        except UnknownOperationError as error:
+            raise HTTPException(status_code=404, detail="Unknown operation.") from error
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        return OperationResponse(**updated)
+
+    return app
+
+
+def create_rpc_app(state: MathFactoryState, manager: ConnectionManager) -> FastAPI:
+    app = FastAPI(title="Math Factory JSON-RPC API", docs_url=None, openapi_url=None)
+
+    @app.get("/health", response_model=HealthResponse)
+    async def health() -> HealthResponse:
+        return HealthResponse()
+
+    @app.post("/rpc")
+    async def rpc_endpoint(request: Request) -> Response:
+        body = await request.body()
+        response_body, notifications = process_jsonrpc_bytes_with_notifications(state, body)
+        await _emit_notifications(manager, notifications)
+        if response_body is None:
+            return Response(status_code=204)
+        return Response(content=response_body, media_type="application/json")
+
+    return app
+
+
+def create_ws_app(state: MathFactoryState, manager: ConnectionManager) -> FastAPI:
+    app = FastAPI(title="Math Factory WebSocket API", docs_url=None, openapi_url=None)
+
+    @app.get("/health", response_model=HealthResponse)
+    async def health() -> HealthResponse:
+        return HealthResponse()
+
+    @app.websocket("/ws")
+    async def websocket_endpoint(websocket: WebSocket) -> None:
+        await websocket.accept()
+        session_id: Optional[str] = None
+        try:
+            while True:
+                message = await websocket.receive_json()
+                action = message.get("action")
+                next_session_id = message.get("session_id")
+
+                if action not in {"register", "set_threshold", "ping"}:
+                    await websocket.send_json({"type": "error", "message": "Unknown WebSocket action."})
+                    continue
+
+                if action == "ping":
+                    await websocket.send_json({"type": "pong"})
+                    continue
+
+                if not isinstance(next_session_id, str) or not next_session_id.strip():
+                    await websocket.send_json({"type": "error", "message": "'session_id' must be a non-empty string."})
+                    continue
+
+                if session_id and session_id != next_session_id:
+                    await manager.remove(session_id, websocket)
+
+                session_id = next_session_id
+                await manager.add(session_id, websocket)
+
+                if action == "register":
+                    snapshot = state.register_session(session_id)
+                    await websocket.send_json(state.build_registered_payload(snapshot))
+
+                if "threshold" in message:
+                    try:
+                        update = state.set_threshold_with_notifications(session_id, int(message["threshold"]))
+                    except ValueError as error:
+                        await websocket.send_json({"type": "error", "message": str(error)})
+                        continue
+                    await _emit_notifications(manager, update.notifications)
+        except WebSocketDisconnect:
+            pass
+        finally:
+            if session_id:
+                await manager.remove(session_id, websocket)
+
+    return app
+
+
+def _build_server(app: FastAPI, host: str, port: int) -> uvicorn.Server:
+    server = uvicorn.Server(
+        uvicorn.Config(
+            app,
+            host=host,
+            port=port,
+            log_level="info",
+            lifespan="off",
+        )
+    )
+    server.install_signal_handlers = lambda: None
+    return server
+
+
+async def _serve_all() -> None:
     host = os.getenv("SERVER_HOST", "0.0.0.0")
     rest_port = int(os.getenv("REST_PORT", "8080"))
     rpc_port = int(os.getenv("RPC_PORT", "8081"))
     ws_port = int(os.getenv("WS_PORT", "8082"))
 
     state = MathFactoryState()
-    rest_server = ReusableThreadingHTTPServer((host, rest_port), _make_rest_handler(OPENAPI_PATH))
-    rpc_server = ReusableThreadingHTTPServer((host, rpc_port), RpcHandler)
-    ws_server = ThreadedWebSocketServer((host, ws_port), WebSocketRequestHandler)
+    manager = ConnectionManager()
 
-    rest_server.state = state
-    rpc_server.state = state
-    ws_server.state = state
+    rest_app = create_rest_app(state)
+    rpc_app = create_rpc_app(state, manager)
+    ws_app = create_ws_app(state, manager)
 
     print(f"REST server listening on http://{host}:{rest_port}")
     print(f"JSON-RPC server listening on http://{host}:{rpc_port}/rpc")
     print(f"WebSocket server listening on ws://{host}:{ws_port}/ws")
 
-    threads = [
-        _start_thread(rest_server, "rest-server"),
-        _start_thread(rpc_server, "rpc-server"),
-        _start_thread(ws_server, "ws-server"),
+    servers = [
+        _build_server(rest_app, host, rest_port),
+        _build_server(rpc_app, host, rpc_port),
+        _build_server(ws_app, host, ws_port),
     ]
 
+    await asyncio.gather(*(server.serve() for server in servers))
+
+
+def main() -> None:
     try:
-        for thread in threads:
-            thread.join()
+        asyncio.run(_serve_all())
     except KeyboardInterrupt:
         print("Shutting down Math Factory services...")
-    finally:
-        rest_server.shutdown()
-        rpc_server.shutdown()
-        ws_server.shutdown()
-        rest_server.server_close()
-        rpc_server.server_close()
-        ws_server.server_close()
 
 
 if __name__ == "__main__":
     main()
-

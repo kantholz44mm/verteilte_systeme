@@ -1,6 +1,11 @@
 # Aufgabe 2 - Math Factory mit REST, JSON-RPC und WebSocket
 
-Diese Implementierung loest die praktischen Teile von Aufgabe 2 komplett in `aufgabe2` und bleibt bewusst bei Python-Standardbibliothek, damit der Code ohne zusaetzliche Paketinstallation lauffaehig bleibt.
+Diese Implementierung loest die praktischen Teile von Aufgabe 2 komplett in `aufgabe2` und verwendet jetzt bewusst echte Libraries:
+
+- `FastAPI` fuer REST und WebSocket
+- `uvicorn` als ASGI-Server
+- `httpx` fuer den JSON-RPC-Client
+- `websockets` fuer die WebSocket-Clientseite
 
 ## Q1: Vergleich JSON-RPC und gRPC
 
@@ -35,6 +40,8 @@ e^x = sum_{n=0..N} x^n / n!
 
 und delegiert dabei alle Rechenschritte per JSON-RPC an den Server. Fuer die Abrechnung wird eine UUID erzeugt und bei jedem Remote-Aufruf mitgeschickt. Ueber die WebSocket-Schnittstelle registriert der Client ausserdem einen Schwellwert; sobald die kumulierten Kosten ihn ueberschreiten, beendet der Client die Berechnung und gibt den letzten Zwischenstand aus.
 
+REST und OpenAPI werden automatisch von FastAPI generiert. Dadurch sind `docs` und `openapi.json` direkt aus der implementierten API ableitbar und nicht mehr als statische Datei gepflegt.
+
 ## Projektstruktur
 
 ```text
@@ -43,14 +50,14 @@ aufgabe2/
     client.py
     operations.py
     rpc.py
+    schemas.py
     server.py
     state.py
-    websocket.py
   tests/
   Dockerfile.server
   Dockerfile.client
   docker-compose.yml
-  openapi.json
+  requirements.txt
 ```
 
 ## Lokal starten
@@ -59,6 +66,9 @@ Server:
 
 ```bash
 cd aufgabe2
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 PYTHONPATH=src python3 -m math_factory.server
 ```
 
@@ -66,6 +76,7 @@ Client:
 
 ```bash
 cd aufgabe2
+source .venv/bin/activate
 PYTHONPATH=src python3 -m math_factory.client --server-host localhost --x 1.0 --terms 8 --threshold 2500
 ```
 
@@ -135,5 +146,6 @@ Dabei wird der Server auf den Ports `8080`, `8081` und `8082` exponiert. Der Cli
 
 ```bash
 cd aufgabe2
+source .venv/bin/activate
 PYTHONPATH=src python3 -m unittest discover -s tests
 ```

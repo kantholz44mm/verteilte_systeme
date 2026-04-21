@@ -19,28 +19,43 @@ class RPCError(Exception):
 
 
 def process_jsonrpc_bytes(state: MathFactoryState, payload: bytes) -> Optional[bytes]:
+    response, _ = process_jsonrpc_bytes_with_notifications(state, payload)
+    return response
+
+
+def process_jsonrpc_bytes_with_notifications(
+    state: MathFactoryState, payload: bytes
+) -> Tuple[Optional[bytes], List[Dict[str, Any]]]:
     try:
         request = json.loads(payload.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
-        return _dump_json(_error_response(None, -32700, "Parse error"))
+        return _dump_json(_error_response(None, -32700, "Parse error")), []
 
     if isinstance(request, list):
         if not request:
-            return _dump_json(_error_response(None, -32600, "Invalid Request"))
-        responses = [response for item in request if (response := _handle_single(state, item)) is not None]
+            return _dump_json(_error_response(None, -32600, "Invalid Request")), []
+        notifications: List[Dict[str, Any]] = []
+        responses = []
+        for item in request:
+            response, item_notifications = _handle_single(state, item)
+            notifications.extend(item_notifications)
+            if response is not None:
+                responses.append(response)
         if not responses:
-            return None
-        return _dump_json(responses)
+            return None, notifications
+        return _dump_json(responses), notifications
 
-    response = _handle_single(state, request)
+    response, notifications = _handle_single(state, request)
     if response is None:
-        return None
-    return _dump_json(response)
+        return None, notifications
+    return _dump_json(response), notifications
 
 
-def _handle_single(state: MathFactoryState, request: Any) -> Optional[Dict[str, Any]]:
+def _handle_single(
+    state: MathFactoryState, request: Any
+) -> Tuple[Optional[Dict[str, Any]], List[Dict[str, Any]]]:
     if not isinstance(request, dict):
-        return _error_response(None, -32600, "Invalid Request")
+        return _error_response(None, -32600, "Invalid Request"), []
 
     request_id = request.get("id")
     is_notification = "id" not in request
@@ -53,17 +68,17 @@ def _handle_single(state: MathFactoryState, request: Any) -> Optional[Dict[str, 
         if not isinstance(method, str) or not method:
             raise RPCError(-32600, "Invalid Request", "'method' must be a non-empty string.")
 
-        result = _dispatch(state, method, request.get("params"))
+        result, notifications = _dispatch(state, method, request.get("params"))
         if is_notification:
-            return None
-        return {"jsonrpc": JSON_RPC_VERSION, "result": result, "id": request_id}
+            return None, notifications
+        return {"jsonrpc": JSON_RPC_VERSION, "result": result, "id": request_id}, notifications
     except RPCError as error:
         if is_notification:
-            return None
-        return _error_response(request_id, error.code, error.message, error.data)
+            return None, []
+        return _error_response(request_id, error.code, error.message, error.data), []
 
 
-def _dispatch(state: MathFactoryState, method: str, params: Any) -> Any:
+def _dispatch(state: MathFactoryState, method: str, params: Any) -> Tuple[Any, List[Dict[str, Any]]]:
     try:
         if method == "factorial":
             arguments, session_id = _parse_factorial_params(params)
@@ -71,7 +86,8 @@ def _dispatch(state: MathFactoryState, method: str, params: Any) -> Any:
             arguments, session_id = _parse_binary_params(params)
         else:
             raise RPCError(-32601, "Method not found", method)
-        return state.execute(method, arguments, session_id=session_id)
+        outcome = state.execute_with_notifications(method, arguments, session_id=session_id)
+        return outcome.result, outcome.notifications
     except UnknownOperationError:
         raise RPCError(-32601, "Method not found", method)
     except OperationDisabledError:
@@ -133,4 +149,3 @@ def _error_response(request_id: Any, code: int, message: str, data: Optional[Any
 
 def _dump_json(payload: Any) -> bytes:
     return json.dumps(payload, indent=2).encode("utf-8")
-

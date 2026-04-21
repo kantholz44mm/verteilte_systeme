@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Optional, Set
+from typing import Any, Dict, List, Optional
 
 from .operations import DEFAULT_OPERATION_DEFINITIONS
 
@@ -49,6 +49,18 @@ class SessionState:
         }
 
 
+@dataclass
+class ExecutionOutcome:
+    result: Any
+    notifications: List[Dict[str, object]]
+
+
+@dataclass
+class StateUpdate:
+    snapshot: Dict[str, object]
+    notifications: List[Dict[str, object]]
+
+
 class MathFactoryState:
     """Shared mutable state for REST, JSON-RPC, and WebSocket interfaces."""
 
@@ -65,7 +77,6 @@ class MathFactoryState:
             for name, definition in DEFAULT_OPERATION_DEFINITIONS.items()
         }
         self._sessions: Dict[str, SessionState] = {}
-        self._connections: Dict[str, Set[object]] = {}
 
     def list_operations(self) -> List[Dict[str, object]]:
         with self._lock:
@@ -98,7 +109,16 @@ class MathFactoryState:
         with self._lock:
             return self._get_or_create_session(session_id).to_dict()
 
+    def register_session(self, session_id: str) -> Dict[str, object]:
+        with self._lock:
+            return self._get_or_create_session(session_id).to_dict()
+
     def execute(self, name: str, arguments: List[object], session_id: Optional[str] = None) -> object:
+        return self.execute_with_notifications(name, arguments, session_id=session_id).result
+
+    def execute_with_notifications(
+        self, name: str, arguments: List[object], session_id: Optional[str] = None
+    ) -> ExecutionOutcome:
         definition = DEFAULT_OPERATION_DEFINITIONS.get(name)
         if definition is None:
             raise UnknownOperationError(name)
@@ -110,48 +130,26 @@ class MathFactoryState:
             cost = config.cost
 
         result = definition.evaluator(*arguments)
-        if session_id:
-            self._charge_session(session_id, cost)
-        return result
-
-    def register_connection(self, session_id: str, connection: object) -> Dict[str, object]:
-        with self._lock:
-            session = self._get_or_create_session(session_id)
-            self._connections.setdefault(session_id, set()).add(connection)
-            snapshot = session.to_dict()
-        self._safe_send(connection, self._registered_payload(snapshot))
-        return snapshot
-
-    def unregister_connection(self, session_id: str, connection: object) -> None:
-        with self._lock:
-            connections = self._connections.get(session_id)
-            if not connections:
-                return
-            connections.discard(connection)
-            if not connections:
-                self._connections.pop(session_id, None)
+        notifications = self._charge_session(session_id, cost) if session_id is not None else []
+        return ExecutionOutcome(result=result, notifications=notifications)
 
     def set_threshold(self, session_id: str, threshold: int) -> Dict[str, object]:
+        return self.set_threshold_with_notifications(session_id, threshold).snapshot
+
+    def set_threshold_with_notifications(self, session_id: str, threshold: int) -> StateUpdate:
         if isinstance(threshold, bool) or not isinstance(threshold, int) or threshold < 0:
             raise ValueError("'threshold' must be a non-negative integer.")
 
-        recipients: List[object]
-        update_payload: Dict[str, object]
-        exceeded_payload: Optional[Dict[str, object]] = None
+        notifications: List[Dict[str, object]] = []
         with self._lock:
             session = self._get_or_create_session(session_id)
             session.threshold = threshold
             session.threshold_exceeded = session.total_cost >= threshold
-            recipients = list(self._connections.get(session_id, set()))
-            update_payload = self._threshold_updated_payload(session)
-            if session.threshold_exceeded:
-                exceeded_payload = self._threshold_exceeded_payload(session)
             snapshot = session.to_dict()
-
-        self._broadcast(recipients, update_payload, session_id=session_id)
-        if exceeded_payload is not None:
-            self._broadcast(recipients, exceeded_payload, session_id=session_id)
-        return snapshot
+            notifications.append(self.build_threshold_updated_payload(session))
+            if session.threshold_exceeded:
+                notifications.append(self.build_threshold_exceeded_payload(session))
+        return StateUpdate(snapshot=snapshot, notifications=notifications)
 
     def _get_operation_config(self, name: str) -> OperationConfig:
         config = self._operations.get(name)
@@ -168,35 +166,19 @@ class MathFactoryState:
             self._sessions[session_id] = session
         return session
 
-    def _charge_session(self, session_id: str, cost: int) -> None:
-        recipients: List[object] = []
-        payload: Optional[Dict[str, object]] = None
+    def _charge_session(self, session_id: str, cost: int) -> List[Dict[str, object]]:
+        notifications: List[Dict[str, object]] = []
         with self._lock:
             session = self._get_or_create_session(session_id)
             session.total_cost += cost
             if session.threshold is not None and not session.threshold_exceeded:
                 if session.total_cost >= session.threshold:
                     session.threshold_exceeded = True
-                    recipients = list(self._connections.get(session_id, set()))
-                    payload = self._threshold_exceeded_payload(session)
-        if payload is not None:
-            self._broadcast(recipients, payload, session_id=session_id)
-
-    def _broadcast(self, recipients: Iterable[object], payload: Dict[str, object], *, session_id: str) -> None:
-        for connection in list(recipients):
-            if not self._safe_send(connection, payload):
-                self.unregister_connection(session_id, connection)
+                    notifications.append(self.build_threshold_exceeded_payload(session))
+        return notifications
 
     @staticmethod
-    def _safe_send(connection: object, payload: Dict[str, object]) -> bool:
-        try:
-            connection.send_json(payload)
-            return True
-        except Exception:
-            return False
-
-    @staticmethod
-    def _registered_payload(snapshot: Dict[str, object]) -> Dict[str, object]:
+    def build_registered_payload(snapshot: Dict[str, object]) -> Dict[str, object]:
         return {
             "type": "registered",
             "session_id": snapshot["session_id"],
@@ -206,7 +188,7 @@ class MathFactoryState:
         }
 
     @staticmethod
-    def _threshold_updated_payload(session: SessionState) -> Dict[str, object]:
+    def build_threshold_updated_payload(session: SessionState) -> Dict[str, object]:
         return {
             "type": "threshold_updated",
             "session_id": session.session_id,
@@ -216,7 +198,7 @@ class MathFactoryState:
         }
 
     @staticmethod
-    def _threshold_exceeded_payload(session: SessionState) -> Dict[str, object]:
+    def build_threshold_exceeded_payload(session: SessionState) -> Dict[str, object]:
         return {
             "type": "threshold_exceeded",
             "session_id": session.session_id,
@@ -224,4 +206,3 @@ class MathFactoryState:
             "total_cost": session.total_cost,
             "message": "The configured cost threshold has been exceeded.",
         }
-

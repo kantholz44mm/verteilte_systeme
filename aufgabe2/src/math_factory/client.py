@@ -1,87 +1,77 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import itertools
 import json
-import socket
-import threading
-import time
-import urllib.error
-import urllib.request
 import uuid
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
-from .websocket import SimpleWebSocketClient
+import httpx
+import websockets
 
 
-def _rpc_call(rpc_url: str, request_id: int, method: str, params: Dict[str, object]) -> object:
-    payload = json.dumps(
-        {"jsonrpc": "2.0", "id": request_id, "method": method, "params": params}
-    ).encode("utf-8")
-    request = urllib.request.Request(
+async def _rpc_call(
+    client: httpx.AsyncClient, rpc_url: str, request_id: int, method: str, params: Dict[str, object]
+) -> object:
+    response = await client.post(
         rpc_url,
-        data=payload,
-        headers={"Content-Type": "application/json"},
-        method="POST",
+        json={"jsonrpc": "2.0", "id": request_id, "method": method, "params": params},
     )
-    with urllib.request.urlopen(request, timeout=5) as response:
-        data = json.loads(response.read().decode("utf-8"))
+    response.raise_for_status()
+    data = response.json()
     if "error" in data:
         raise RuntimeError(f"JSON-RPC error {data['error']['code']}: {data['error']['message']}")
     return data["result"]
 
 
-def _wait_for_http(url: str, retries: int = 40, delay: float = 0.5) -> None:
-    last_error: Optional[Exception] = None
-    for _ in range(retries):
-        try:
-            with urllib.request.urlopen(url, timeout=2):
-                return
-        except Exception as error:
-            last_error = error
-            time.sleep(delay)
-    raise RuntimeError(f"HTTP endpoint {url} did not become ready: {last_error}")
-
-
-def _connect_websocket_with_retry(
-    websocket: SimpleWebSocketClient, retries: int = 40, delay: float = 0.5
+async def _wait_for_http(
+    client: httpx.AsyncClient, url: str, retries: int = 40, delay: float = 0.5
 ) -> None:
     last_error: Optional[Exception] = None
     for _ in range(retries):
         try:
-            websocket.connect()
-            return
+            response = await client.get(url)
+            response.raise_for_status()
+            if response.json().get("status") == "ok":
+                return
         except Exception as error:
             last_error = error
-            time.sleep(delay)
+            await asyncio.sleep(delay)
+    raise RuntimeError(f"HTTP endpoint {url} did not become ready: {last_error}")
+
+
+async def _connect_websocket_with_retry(
+    ws_url: str, retries: int = 40, delay: float = 0.5
+):
+    last_error: Optional[Exception] = None
+    for _ in range(retries):
+        try:
+            return await websockets.connect(ws_url)
+        except Exception as error:
+            last_error = error
+            await asyncio.sleep(delay)
     raise RuntimeError(f"WebSocket endpoint did not become ready: {last_error}")
 
 
-class NotificationWatcher(threading.Thread):
-    def __init__(self, websocket: SimpleWebSocketClient, stop_event: threading.Event) -> None:
-        super().__init__(daemon=True)
-        self._websocket = websocket
-        self._stop_event = stop_event
+class NotificationState:
+    def __init__(self) -> None:
         self.messages: List[Dict[str, object]] = []
         self.threshold_event: Optional[Dict[str, object]] = None
 
-    def run(self) -> None:
-        while not self._stop_event.is_set():
-            try:
-                message = self._websocket.receive_json(timeout=0.2)
-            except socket.timeout:
-                continue
-            except OSError:
-                return
 
-            if message is None:
-                return
-
-            self.messages.append(message)
+async def _watch_notifications(websocket, stop_event: asyncio.Event, state: NotificationState) -> None:
+    try:
+        async for raw_message in websocket:
+            message = json.loads(raw_message)
+            state.messages.append(message)
             print(f"[ws] {json.dumps(message)}")
             if message.get("type") == "threshold_exceeded":
-                self.threshold_event = message
-                self._stop_event.set()
+                state.threshold_event = message
+                stop_event.set()
+                return
+    except websockets.ConnectionClosed:
+        return
 
 
 def parse_args() -> argparse.Namespace:
@@ -113,7 +103,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def main() -> None:
+async def _run_client() -> None:
     args = parse_args()
     if args.terms < 0:
         raise SystemExit("--terms must be non-negative.")
@@ -121,87 +111,100 @@ def main() -> None:
     rest_url = f"http://{args.server_host}:{args.rest_port}/health"
     rpc_url = f"http://{args.server_host}:{args.rpc_port}/rpc"
     rpc_health_url = f"http://{args.server_host}:{args.rpc_port}/health"
-
-    _wait_for_http(rest_url)
-    _wait_for_http(rpc_health_url)
+    ws_url = f"ws://{args.server_host}:{args.ws_port}/ws"
 
     session_id = str(uuid.uuid4())
-    stop_event = threading.Event()
+    stop_event = asyncio.Event()
     request_ids = itertools.count(1)
     partial_sums: List[Dict[str, float]] = []
 
-    websocket = SimpleWebSocketClient(args.server_host, args.ws_port)
-    _connect_websocket_with_retry(websocket)
-    websocket.send_json({"action": "register", "session_id": session_id, "threshold": args.threshold})
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        await _wait_for_http(client, rest_url)
+        await _wait_for_http(client, rpc_health_url)
 
-    watcher = NotificationWatcher(websocket, stop_event)
-    watcher.start()
-
-    running_sum = 0.0
-    try:
-        print(f"session_id={session_id}")
-        print(f"Calculating e^{args.x} with N={args.terms}")
-        for n in range(args.terms + 1):
-            if stop_event.is_set():
-                break
-
-            numerator = _rpc_call(
-                rpc_url,
-                next(request_ids),
-                "power",
-                {"a": args.x, "b": n, "session_id": session_id},
-            )
-            denominator = _rpc_call(
-                rpc_url,
-                next(request_ids),
-                "factorial",
-                {"a": n, "session_id": session_id},
-            )
-            term = _rpc_call(
-                rpc_url,
-                next(request_ids),
-                "division",
-                {"a": numerator, "b": denominator, "session_id": session_id},
-            )
-            running_sum = float(
-                _rpc_call(
-                    rpc_url,
-                    next(request_ids),
-                    "addition",
-                    {"a": running_sum, "b": term, "session_id": session_id},
-                )
+        async with await _connect_websocket_with_retry(ws_url) as websocket:
+            await websocket.send(
+                json.dumps({"action": "register", "session_id": session_id, "threshold": args.threshold})
             )
 
-            partial_sums.append({"n": n, "term": float(term), "sum": running_sum})
-            print(f"n={n:02d} term={float(term):.10f} partial_sum={running_sum:.10f}")
+            notification_state = NotificationState()
+            watcher_task = asyncio.create_task(_watch_notifications(websocket, stop_event, notification_state))
 
-            if args.new_threshold is not None and n == args.new_threshold_after:
-                websocket.send_json(
-                    {
-                        "action": "set_threshold",
-                        "session_id": session_id,
-                        "threshold": args.new_threshold,
-                    }
-                )
+            running_sum = 0.0
+            try:
+                print(f"session_id={session_id}")
+                print(f"Calculating e^{args.x} with N={args.terms}")
+                for n in range(args.terms + 1):
+                    if stop_event.is_set():
+                        break
 
-            if stop_event.is_set():
-                break
-    finally:
-        stop_event.set()
-        watcher.join(timeout=1)
-        websocket.close()
+                    numerator = await _rpc_call(
+                        client,
+                        rpc_url,
+                        next(request_ids),
+                        "power",
+                        {"a": args.x, "b": n, "session_id": session_id},
+                    )
+                    denominator = await _rpc_call(
+                        client,
+                        rpc_url,
+                        next(request_ids),
+                        "factorial",
+                        {"a": n, "session_id": session_id},
+                    )
+                    term = await _rpc_call(
+                        client,
+                        rpc_url,
+                        next(request_ids),
+                        "division",
+                        {"a": numerator, "b": denominator, "session_id": session_id},
+                    )
+                    running_sum = float(
+                        await _rpc_call(
+                            client,
+                            rpc_url,
+                            next(request_ids),
+                            "addition",
+                            {"a": running_sum, "b": term, "session_id": session_id},
+                        )
+                    )
+
+                    partial_sums.append({"n": n, "term": float(term), "sum": running_sum})
+                    print(f"n={n:02d} term={float(term):.10f} partial_sum={running_sum:.10f}")
+
+                    if args.new_threshold is not None and n == args.new_threshold_after:
+                        await websocket.send(
+                            json.dumps(
+                                {
+                                    "action": "set_threshold",
+                                    "session_id": session_id,
+                                    "threshold": args.new_threshold,
+                                }
+                            )
+                        )
+
+                    if stop_event.is_set():
+                        break
+            finally:
+                stop_event.set()
+                await websocket.close()
+                await watcher_task
 
     print(f"Computed {len(partial_sums)} partial sums.")
     if partial_sums:
         print(f"Latest approximation: {partial_sums[-1]['sum']:.10f}")
 
-    if watcher.threshold_event:
+    if notification_state.threshold_event:
         print(
             "Calculation stopped because the server reported a threshold violation: "
-            f"{json.dumps(watcher.threshold_event)}"
+            f"{json.dumps(notification_state.threshold_event)}"
         )
     else:
         print("Calculation finished without a threshold violation.")
+
+
+def main() -> None:
+    asyncio.run(_run_client())
 
 
 if __name__ == "__main__":

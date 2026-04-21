@@ -3,14 +3,6 @@ import unittest
 from math_factory.state import MathFactoryState, OperationDisabledError
 
 
-class FakeConnection:
-    def __init__(self) -> None:
-        self.messages = []
-
-    def send_json(self, payload):
-        self.messages.append(payload)
-
-
 class MathFactoryStateTests(unittest.TestCase):
     def test_execute_addition_updates_session_costs(self):
         state = MathFactoryState()
@@ -21,17 +13,17 @@ class MathFactoryStateTests(unittest.TestCase):
         self.assertEqual(result, 5)
         self.assertEqual(session["total_cost"], 2)
 
-    def test_threshold_notification_is_sent_once(self):
+    def test_threshold_notification_is_returned_once_when_crossed(self):
         state = MathFactoryState()
-        connection = FakeConnection()
 
-        state.register_connection("session-1", connection)
-        state.set_threshold("session-1", 100)
-        state.execute("factorial", [5], session_id="session-1")
-        state.execute("addition", [1, 2], session_id="session-1")
+        threshold_update = state.set_threshold_with_notifications("session-1", 100)
+        first_outcome = state.execute_with_notifications("factorial", [5], session_id="session-1")
+        second_outcome = state.execute_with_notifications("addition", [1, 2], session_id="session-1")
 
         threshold_messages = [
-            message for message in connection.messages if message["type"] == "threshold_exceeded"
+            *[message for message in threshold_update.notifications if message["type"] == "threshold_exceeded"],
+            *[message for message in first_outcome.notifications if message["type"] == "threshold_exceeded"],
+            *[message for message in second_outcome.notifications if message["type"] == "threshold_exceeded"],
         ]
         self.assertEqual(len(threshold_messages), 1)
 
@@ -45,4 +37,3 @@ class MathFactoryStateTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
