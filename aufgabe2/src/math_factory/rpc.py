@@ -1,20 +1,12 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 from .state import MathFactoryState
 
 
 JSON_RPC_VERSION = "2.0"
-
-
-@dataclass
-class RPCError(Exception):
-    code: int
-    message: str
-    data: Optional[Any] = None
 
 
 def process_jsonrpc_bytes_with_notifications(
@@ -54,32 +46,34 @@ def _handle_single(
 
     try:
         result, notifications = _dispatch(state, request.get("method"), request.get("params"))
-        if is_notification:
-            return None, notifications
-        return {"jsonrpc": JSON_RPC_VERSION, "result": result, "id": request_id}, notifications
-    except RPCError as error:
+    except KeyError:
         if is_notification:
             return None, []
-        return _error_response(request_id, error.code, error.message, error.data), []
+        return _error_response(request_id, -32601, "Method not found", request.get("method")), []
+    except RuntimeError:
+        if is_notification:
+            return None, []
+        return _error_response(request_id, -32010, "Operation disabled", request.get("method")), []
+    except ValueError as error:
+        if is_notification:
+            return None, []
+        return _error_response(request_id, -32602, "Invalid params", str(error)), []
+    except Exception as error:
+        if is_notification:
+            return None, []
+        return _error_response(request_id, -32603, "Internal error", str(error)), []
+
+    if is_notification:
+        return None, notifications
+    return {"jsonrpc": JSON_RPC_VERSION, "result": result, "id": request_id}, notifications
 
 
 def _dispatch(state: MathFactoryState, method: Any, params: Any) -> Tuple[Any, List[Dict[str, Any]]]:
-    try:
-        if method == "factorial":
-            arguments, session_id = _parse_factorial_params(params)
-        else:
-            arguments, session_id = _parse_binary_params(params)
-        return state.execute_with_notifications(method, arguments, session_id=session_id)
-    except KeyError:
-        raise RPCError(-32601, "Method not found", method)
-    except RuntimeError:
-        raise RPCError(-32010, "Operation disabled", method)
-    except ValueError as error:
-        raise RPCError(-32602, "Invalid params", str(error))
-    except RPCError:
-        raise
-    except Exception as error:
-        raise RPCError(-32603, "Internal error", str(error))
+    if method == "factorial":
+        arguments, session_id = _parse_factorial_params(params)
+    else:
+        arguments, session_id = _parse_binary_params(params)
+    return state.execute_with_notifications(method, arguments, session_id=session_id)
 
 
 def _parse_binary_params(params: Any) -> Tuple[List[Any], Optional[str]]:
