@@ -10,7 +10,7 @@ from fastapi.responses import RedirectResponse
 
 from .rpc import process_jsonrpc_bytes_with_notifications
 from .schemas import HealthResponse, OperationListResponse, OperationResponse, OperationUpdateRequest
-from .state import MathFactoryState, UnknownOperationError
+from .state import MathFactoryState
 
 
 class ConnectionManager:
@@ -85,7 +85,7 @@ def create_rest_app(state: MathFactoryState) -> FastAPI:
     async def get_operation(name: str) -> OperationResponse:
         try:
             return OperationResponse(**state.get_operation(name))
-        except UnknownOperationError as error:
+        except KeyError as error:
             raise HTTPException(status_code=404, detail="Unknown operation.") from error
 
     @app.patch("/operations/{name}", response_model=OperationResponse)
@@ -93,7 +93,7 @@ def create_rest_app(state: MathFactoryState) -> FastAPI:
     async def update_operation(name: str, update: OperationUpdateRequest) -> OperationResponse:
         try:
             updated = state.update_operation(name, **_model_dump(update))
-        except UnknownOperationError as error:
+        except KeyError as error:
             raise HTTPException(status_code=404, detail="Unknown operation.") from error
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
@@ -157,16 +157,16 @@ def create_ws_app(state: MathFactoryState, manager: ConnectionManager) -> FastAP
                 await manager.add(session_id, websocket)
 
                 if action == "register":
-                    snapshot = state.register_session(session_id)
-                    await websocket.send_json(state.build_registered_payload(snapshot))
+                    snapshot = dict(state._get_or_create_session(session_id))
+                    await websocket.send_json({"type": "registered", **snapshot})
 
                 if "threshold" in message:
                     try:
-                        update = state.set_threshold_with_notifications(session_id, int(message["threshold"]))
+                        _, notifications = state.set_threshold_with_notifications(session_id, int(message["threshold"]))
                     except ValueError as error:
                         await websocket.send_json({"type": "error", "message": str(error)})
                         continue
-                    await _emit_notifications(manager, update.notifications)
+                    await _emit_notifications(manager, notifications)
         except WebSocketDisconnect:
             pass
         finally:
