@@ -1,6 +1,6 @@
 # Aufgabe 2 - Math Factory mit REST, JSON-RPC und WebSocket
 
-Diese Implementierung loest die praktischen Teile von Aufgabe 2 komplett in `aufgabe2` und verwendet jetzt bewusst echte Libraries:
+Diese Implementierung löst die praktischen Teile von Aufgabe 2 komplett in `aufgabe2` und verwendet jetzt bewusst echte Libraries:
 
 - `FastAPI` fuer REST und WebSocket
 - `uvicorn` als ASGI-Server
@@ -9,9 +9,9 @@ Diese Implementierung loest die praktischen Teile von Aufgabe 2 komplett in `auf
 
 ## Q1: Vergleich JSON-RPC und gRPC
 
-JSON-RPC ist ein leichtgewichtiges RPC-Protokoll, das JSON zur Serialisierung nutzt und haeufig ueber HTTP transportiert wird. Dadurch ist es sehr einfach zu verstehen, leicht mit Browsern, Skripten und heterogenen Systemen integrierbar und fuer schnelle Prototypen oder kleine Service-Schnittstellen gut geeignet.
+JSON-RPC ist ein leichtgewichtiges RPC-Protokoll, das JSON zur Serialisierung nutzt und häufig über HTTP transportiert wird. Dadurch ist es sehr einfach zu verstehen, leicht mit Browsern, Skripten und heterogenen Systemen integrierbar und für schnelle Prototypen oder kleine Service-Schnittstellen gut geeignet.
 
-gRPC ist staerker formalisiert: Es nutzt Protocol Buffers, arbeitet effizient binaer, unterstuetzt Streaming nativ und ist bei grossen Datenmengen oder performancekritischen Microservices meist schneller. Rueckwaertskompatibilitaet ist bei gRPC durch Protobuf-Schemaentwicklung strukturierter, waehrend JSON-RPC flexibler, aber auch fehleranfaelliger ist. JSON-RPC eignet sich besonders fuer einfache Remote-Aufrufe, Debugging-freundliche APIs und Umgebungen, in denen menschenlesbare Nachrichten wichtiger sind als maximale Performance.
+gRPC ist stärker formalisiert: Es nutzt Protocol Buffers, arbeitet effizient binaer, unterstützt Streaming nativ und ist bei grossen Datenmengen oder performancekritischen Microservices meist schneller. Rückwärtskompatibilität ist bei gRPC durch Protobuf-Schemaentwicklung strukturierter, während JSON-RPC flexibler, aber auch fehleranfälliger ist. JSON-RPC eignet sich besonders für einfache Remote-Aufrufe, Debugging-freundliche APIs und Umgebungen, in denen menschenlesbare Nachrichten wichtiger sind als maximale Performance.
 
 ## Umsetzung
 
@@ -32,13 +32,13 @@ Unterstuetzte Operationen gemaess Aufgabenblatt:
 | `factorial` | `a!` | 100 |
 | `power` | `a^b` | 1150 |
 
-Der Client berechnet `e^x` ueber die Taylor-Reihe
+Der Client berechnet `e^x` über die Taylor-Reihe
 
 ```text
 e^x = sum_{n=0..N} x^n / n!
 ```
 
-und delegiert dabei alle Rechenschritte per JSON-RPC an den Server. Fuer die Abrechnung wird eine UUID erzeugt und bei jedem Remote-Aufruf mitgeschickt. Ueber die WebSocket-Schnittstelle registriert der Client ausserdem einen Schwellwert; sobald die kumulierten Kosten ihn ueberschreiten, beendet der Client die Berechnung und gibt den letzten Zwischenstand aus.
+und delegiert dabei alle Rechenschritte per JSON-RPC an den Server. Fuer die Abrechnung wird eine UUID erzeugt und bei jedem Remote-Aufruf mitgeschickt. Ueber die WebSocket-Schnittstelle registriert der Client ausserdem einen Schwellwert; sobald die kumulierten Kosten ihn überschreiten, beendet der Client die Berechnung und gibt den letzten Zwischenstand aus.
 
 REST und OpenAPI werden automatisch von FastAPI generiert. Dadurch sind `docs` und `openapi.json` direkt aus der implementierten API ableitbar und nicht mehr als statische Datei gepflegt.
 
