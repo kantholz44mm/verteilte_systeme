@@ -40,7 +40,7 @@ e^x = sum_{n=0..N} x^n / n!
 
 und delegiert dabei alle Rechenschritte per JSON-RPC an den Server. Fuer die Abrechnung wird eine UUID erzeugt und bei jedem Remote-Aufruf mitgeschickt. Ueber die WebSocket-Schnittstelle registriert der Client ausserdem einen Schwellwert; sobald die kumulierten Kosten ihn überschreiten, beendet der Client die Berechnung und gibt den letzten Zwischenstand aus.
 
-REST und OpenAPI werden automatisch von FastAPI generiert. Dadurch sind `docs` und `openapi.json` direkt aus der implementierten API ableitbar und nicht mehr als statische Datei gepflegt.
+REST, Swagger UI und OpenAPI werden automatisch von FastAPI generiert. Dadurch sind `docs` und `openapi.json` direkt aus der implementierten API ableitbar und nicht mehr als statische Datei gepflegt.
 
 ## Projektstruktur
 
@@ -82,10 +82,10 @@ PYTHONPATH=src python3 -m math_factory.client --server-host localhost --x 1.0 --
 
 ## REST API
 
-Die REST-API dient zur Verwaltung der freigegebenen Rechenoperationen. OpenAPI-Dokumentation liegt unter:
+Die REST-API dient zur Verwaltung der freigegebenen Rechenoperationen. Die OpenAPI-Dokumentation und Swagger UI liegen unter:
 
-- `http://localhost:8080/openapi.json`
-- `http://localhost:8080/docs`
+- Swagger UI: `http://localhost:8080/docs`
+- OpenAPI JSON: `http://localhost:8080/openapi.json`
 
 Beispiele:
 

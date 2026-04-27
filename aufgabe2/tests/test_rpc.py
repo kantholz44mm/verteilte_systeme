@@ -7,6 +7,7 @@ from math_factory.state import MathFactoryState
 
 class JsonRpcTests(unittest.TestCase):
     def test_successful_request_returns_result(self):
+        """JSON-RPC addition returns 7 and charges the session with cost 2."""
         state = MathFactoryState()
         payload = json.dumps(
             {
@@ -25,6 +26,7 @@ class JsonRpcTests(unittest.TestCase):
         self.assertEqual(state._get_or_create_session("client-1")["total_cost"], 2)
 
     def test_unknown_method_returns_jsonrpc_error(self):
+        """Unknown JSON-RPC methods return the Method not found error code."""
         state = MathFactoryState()
         payload = json.dumps(
             {"jsonrpc": "2.0", "id": 2, "method": "unknown", "params": {}}
@@ -37,6 +39,7 @@ class JsonRpcTests(unittest.TestCase):
         self.assertEqual(notifications, [])
 
     def test_notification_returns_no_http_body(self):
+        """JSON-RPC notifications without an id produce no response body."""
         state = MathFactoryState()
         payload = json.dumps(
             {"jsonrpc": "2.0", "method": "addition", "params": {"a": 1, "b": 2}}

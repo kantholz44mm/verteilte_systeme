@@ -44,6 +44,8 @@ def create_rest_app(state: MathFactoryState) -> FastAPI:
         title="Math Factory REST API",
         version="1.0.0",
         description="REST API to manage enabled operations and their costs.",
+        docs_url="/docs",
+        openapi_url="/openapi.json",
     )
 
     @app.get("/", include_in_schema=False)

@@ -8,6 +8,7 @@ from math_factory.state import MathFactoryState
 
 class FastApiIntegrationTests(unittest.TestCase):
     def test_rest_openapi_and_operation_update(self):
+        """REST exposes OpenAPI, Swagger UI, and can update operation costs."""
         state = MathFactoryState()
         app = create_rest_app(state)
 
@@ -15,6 +16,10 @@ class FastApiIntegrationTests(unittest.TestCase):
             openapi_response = client.get("/openapi.json")
             self.assertEqual(openapi_response.status_code, 200)
             self.assertEqual(openapi_response.json()["info"]["title"], "Math Factory REST API")
+
+            swagger_response = client.get("/docs")
+            self.assertEqual(swagger_response.status_code, 200)
+            self.assertIn("swagger-ui", swagger_response.text)
 
             update_response = client.patch(
                 "/operations/power",
@@ -25,6 +30,7 @@ class FastApiIntegrationTests(unittest.TestCase):
             self.assertFalse(update_response.json()["enabled"])
 
     def test_rpc_endpoint_and_websocket_registration(self):
+        """RPC execution charges a registered WebSocket session and emits threshold_exceeded."""
         state = MathFactoryState()
         manager = ConnectionManager()
         rpc_app = create_rpc_app(state, manager)

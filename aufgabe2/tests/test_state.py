@@ -5,6 +5,7 @@ from math_factory.state import MathFactoryState
 
 class MathFactoryStateTests(unittest.TestCase):
     def test_execute_addition_updates_session_costs(self):
+        """Executing addition returns 5 and records the operation cost."""
         state = MathFactoryState()
 
         result, _ = state.execute_with_notifications("addition", [2, 3], session_id="session-1")
@@ -14,6 +15,7 @@ class MathFactoryStateTests(unittest.TestCase):
         self.assertEqual(session["total_cost"], 2)
 
     def test_threshold_notification_is_returned_once_when_crossed(self):
+        """A session emits exactly one threshold_exceeded notification when crossing its limit."""
         state = MathFactoryState()
 
         _, threshold_notifications = state.set_threshold_with_notifications("session-1", 100)
@@ -28,6 +30,7 @@ class MathFactoryStateTests(unittest.TestCase):
         self.assertEqual(len(threshold_messages), 1)
 
     def test_disabled_operation_raises(self):
+        """Disabled operations cannot be executed."""
         state = MathFactoryState()
         state.update_operation("power", enabled=False)
 
