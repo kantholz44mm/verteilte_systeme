@@ -1,0 +1,195 @@
+asyncapi: 2.6.0
+info:
+  title: Math Factory WebSocket API
+  version: 1.0.0
+  description: WebSocket API for registering a session and receiving Math Factory cost threshold notifications.
+  contact:
+    name: Math Factory
+  license:
+    name: MIT
+servers:
+  local:
+    url: localhost:8082
+    protocol: ws
+    description: Local Math Factory WebSocket server
+channels:
+  /ws:
+    publish:
+      operationId: sendWebSocketMessage
+      summary: Messages sent from Postman to the server
+      message:
+        oneOf:
+          - $ref: "#/components/messages/Register"
+          - $ref: "#/components/messages/SetThreshold"
+          - $ref: "#/components/messages/Ping"
+    subscribe:
+      operationId: receiveWebSocketMessage
+      summary: Messages received from the server
+      message:
+        oneOf:
+          - $ref: "#/components/messages/Registered"
+          - $ref: "#/components/messages/ThresholdUpdated"
+          - $ref: "#/components/messages/ThresholdExceeded"
+          - $ref: "#/components/messages/Pong"
+          - $ref: "#/components/messages/Error"
+components:
+  messages:
+    Register:
+      name: register
+      title: Register session
+      payload:
+        type: object
+        required:
+          - action
+          - session_id
+        properties:
+          action:
+            type: string
+            const: register
+          session_id:
+            type: string
+            examples:
+              - postman-session
+          threshold:
+            type: integer
+            minimum: 0
+            examples:
+              - 2500
+        examples:
+          - action: register
+            session_id: postman-session
+            threshold: 2500
+    SetThreshold:
+      name: set_threshold
+      title: Update threshold
+      payload:
+        type: object
+        required:
+          - action
+          - session_id
+          - threshold
+        properties:
+          action:
+            type: string
+            const: set_threshold
+          session_id:
+            type: string
+            examples:
+              - postman-session
+          threshold:
+            type: integer
+            minimum: 0
+            examples:
+              - 5000
+        examples:
+          - action: set_threshold
+            session_id: postman-session
+            threshold: 5000
+    Ping:
+      name: ping
+      title: Ping
+      payload:
+        type: object
+        required:
+          - action
+        properties:
+          action:
+            type: string
+            const: ping
+        examples:
+          - action: ping
+    Registered:
+      name: registered
+      title: Registered response
+      payload:
+        $ref: "#/components/schemas/SessionMessage"
+      examples:
+        - payload:
+            type: registered
+            session_id: postman-session
+            total_cost: 0
+            threshold: 2500
+            threshold_exceeded: false
+    ThresholdUpdated:
+      name: threshold_updated
+      title: Threshold updated response
+      payload:
+        $ref: "#/components/schemas/SessionMessage"
+      examples:
+        - payload:
+            type: threshold_updated
+            session_id: postman-session
+            total_cost: 0
+            threshold: 2500
+            threshold_exceeded: false
+    ThresholdExceeded:
+      name: threshold_exceeded
+      title: Threshold exceeded notification
+      payload:
+        allOf:
+          - $ref: "#/components/schemas/SessionMessage"
+          - type: object
+            required:
+              - message
+            properties:
+              message:
+                type: string
+      examples:
+        - payload:
+            type: threshold_exceeded
+            session_id: postman-session
+            total_cost: 2604
+            threshold: 2500
+            threshold_exceeded: true
+            message: The configured cost threshold has been exceeded.
+    Pong:
+      name: pong
+      title: Pong response
+      payload:
+        type: object
+        required:
+          - type
+        properties:
+          type:
+            type: string
+            const: pong
+      examples:
+        - payload:
+            type: pong
+    Error:
+      name: error
+      title: Error response
+      payload:
+        type: object
+        required:
+          - type
+          - message
+        properties:
+          type:
+            type: string
+            const: error
+          message:
+            type: string
+  schemas:
+    SessionMessage:
+      type: object
+      required:
+        - type
+        - session_id
+        - total_cost
+        - threshold_exceeded
+      properties:
+        type:
+          type: string
+        session_id:
+          type: string
+        total_cost:
+          type: integer
+          minimum: 0
+        threshold:
+          type:
+            - integer
+            - "null"
+          minimum: 0
+        threshold_exceeded:
+          type: boolean
