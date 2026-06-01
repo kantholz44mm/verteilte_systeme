@@ -2,10 +2,10 @@
 
 Diese Implementierung löst die praktischen Teile von Aufgabe 2 komplett in `aufgabe2` und verwendet jetzt bewusst echte Libraries:
 
-- `FastAPI` fuer REST und WebSocket
+- `FastAPI` für REST und WebSocket
 - `uvicorn` als ASGI-Server
-- `httpx` fuer den JSON-RPC-Client
-- `websockets` fuer die WebSocket-Clientseite
+- `httpx` für den JSON-RPC-Client
+- `websockets` für die WebSocket-Clientseite
 
 ## Q1: Vergleich JSON-RPC und gRPC
 
@@ -17,9 +17,9 @@ gRPC ist stärker formalisiert: Es nutzt Protocol Buffers, arbeitet effizient bi
 
 Der Server bietet drei getrennte Schnittstellen:
 
-- REST auf Port `8080` zur Verwaltung der verfuegbaren Operationen und ihrer Kosten
-- JSON-RPC auf Port `8081` fuer die eigentlichen Rechenaufrufe
-- WebSocket auf Port `8082` fuer Threshold- und Kostenbenachrichtigungen
+- REST auf Port `8080` zur Verwaltung der verfügbaren Operationen und ihrer Kosten
+- JSON-RPC auf Port `8081` für die eigentlichen Rechenaufrufe
+- WebSocket auf Port `8082` für Threshold- und Kostenbenachrichtigungen
 
 Unterstuetzte Operationen gemaess Aufgabenblatt:
 
@@ -38,7 +38,7 @@ Der Client berechnet `e^x` über die Taylor-Reihe
 e^x = sum_{n=0..N} x^n / n!
 ```
 
-und delegiert dabei alle Rechenschritte per JSON-RPC an den Server. Fuer die Abrechnung wird eine UUID erzeugt und bei jedem Remote-Aufruf mitgeschickt. Ueber die WebSocket-Schnittstelle registriert der Client ausserdem einen Schwellwert; sobald die kumulierten Kosten ihn überschreiten, beendet der Client die Berechnung und gibt den letzten Zwischenstand aus.
+und delegiert dabei alle Rechenschritte per JSON-RPC an den Server. für die Abrechnung wird eine UUID erzeugt und bei jedem Remote-Aufruf mitgeschickt. Ueber die WebSocket-Schnittstelle registriert der Client ausserdem einen Schwellwert; sobald die kumulierten Kosten ihn überschreiten, beendet der Client die Berechnung und gibt den letzten Zwischenstand aus.
 
 REST, Swagger UI und OpenAPI werden automatisch von FastAPI generiert. Dadurch sind `docs` und `openapi.json` direkt aus der implementierten API ableitbar und nicht mehr als statische Datei gepflegt.
 

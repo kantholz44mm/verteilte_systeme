@@ -1,0 +1,60 @@
+services:
+  peer1:
+    build: .
+    environment:
+      PEER_ID: peer1
+      PORT: 8000
+      BASE_URL: http://peer1:8000
+    ports:
+      - "8001:8000"
+
+  peer2:
+    build: .
+    environment:
+      PEER_ID: peer2
+      PORT: 8000
+      BASE_URL: http://peer2:8000
+      BOOTSTRAP_PEERS: http://peer1:8000
+    ports:
+      - "8002:8000"
+    depends_on:
+      - peer1
+
+  peer3:
+    build: .
+    environment:
+      PEER_ID: peer3
+      PORT: 8000
+      BASE_URL: http://peer3:8000
+      BOOTSTRAP_PEERS: http://peer1:8000,http://peer2:8000
+    ports:
+      - "8003:8000"
+    depends_on:
+      - peer1
+      - peer2
+
+  peer4:
+    build: .
+    environment:
+      PEER_ID: peer4
+      PORT: 8000
+      BASE_URL: http://peer4:8000
+      BOOTSTRAP_PEERS: http://peer1:8000,http://peer2:8000
+    ports:
+      - "8004:8000"
+    depends_on:
+      - peer1
+      - peer2
+
+  peer5:
+    build: .
+    environment:
+      PEER_ID: peer5
+      PORT: 8000
+      BASE_URL: http://peer5:8000
+      BOOTSTRAP_PEERS: http://peer1:8000,http://peer2:8000
+    ports:
+      - "8005:8000"
+    depends_on:
+      - peer1
+      - peer2
