@@ -1,0 +1,71 @@
+services:
+  data-manager:
+    build:
+      context: .
+      dockerfile: Dockerfile.data-manager
+    container_name: data-manager
+    ports:
+      - "8080:8080"
+    volumes:
+      - math-factory-data:/data
+
+  math-factory-worker-1:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: math-factory-worker-1
+    environment:
+      INSTANCE_ID: mf-1
+      DATA_MANAGER_URL: http://data-manager:8080
+    depends_on:
+      - data-manager
+
+  math-factory-worker-2:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: math-factory-worker-2
+    environment:
+      INSTANCE_ID: mf-2
+      DATA_MANAGER_URL: http://data-manager:8080
+    depends_on:
+      - data-manager
+
+  math-factory-worker-3:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: math-factory-worker-3
+    environment:
+      INSTANCE_ID: mf-3
+      DATA_MANAGER_URL: http://data-manager:8080
+    depends_on:
+      - data-manager
+
+  math-factory-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.gateway
+    container_name: math-factory-gateway
+    environment:
+      WORKER_URLS: http://math-factory-worker-1:8081,http://math-factory-worker-2:8081,http://math-factory-worker-3:8081
+    ports:
+      - "8081:8081"
+    depends_on:
+      - math-factory-worker-1
+      - math-factory-worker-2
+      - math-factory-worker-3
+
+  math-factory-client:
+    build:
+      context: .
+      dockerfile: Dockerfile.client
+    container_name: math-factory-client
+    depends_on:
+      - math-factory-gateway
+    environment:
+      PYTHONPATH: /app/src
+      RPC_URL: http://math-factory-gateway:8081/rpc
+
+volumes:
+  math-factory-data:

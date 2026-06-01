@@ -1,0 +1,44 @@
+services:
+  data-manager:
+    image: math-factory-data-manager:latest
+    environment:
+      DATA_DIR: /data
+    ports:
+      - target: 8080
+        published: 8080
+        protocol: tcp
+        mode: ingress
+    volumes:
+      - math-factory-data:/data
+    networks:
+      - math-factory-net
+
+  math-factory-worker:
+    image: math-factory-worker:latest
+    environment:
+      DATA_MANAGER_URL: http://data-manager:8080
+    deploy:
+      replicas: 3
+    networks:
+      - math-factory-net
+
+  math-factory-gateway:
+    image: math-factory-gateway:latest
+    environment:
+      WORKER_URLS: http://math-factory-worker:8081
+    ports:
+      - target: 8081
+        published: 8081
+        protocol: tcp
+        mode: ingress
+    deploy:
+      replicas: 1
+    networks:
+      - math-factory-net
+
+networks:
+  math-factory-net:
+    driver: overlay
+
+volumes:
+  math-factory-data:

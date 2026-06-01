@@ -1,4 +1,6 @@
 aufgabe1/target/
 aufgabe2/.venv
+aufgabe4/.venv
+aufgabe4/**/__pycache__/
 aufgabe5/.venv
 aufgabe5/**/__pycache__/

@@ -1,0 +1,341 @@
+{
+  "info": {
+    "_postman_id": "d6a97735-24a8-4b7f-9ef2-7d0d9bd4c587",
+    "name": "Aufgabe 2 - Math Factory",
+    "description": "Postman collection for the Math Factory REST, JSON-RPC, and WebSocket interfaces. Start the server first, then run the requests against localhost.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "rest_url",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "rpc_url",
+      "value": "http://localhost:8081"
+    },
+    {
+      "key": "ws_url",
+      "value": "ws://localhost:8082"
+    },
+    {
+      "key": "session_id",
+      "value": "postman-session"
+    },
+    {
+      "key": "threshold",
+      "value": "2500"
+    }
+  ],
+  "item": [
+    {
+      "name": "REST",
+      "item": [
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{rest_url}}/health"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('REST health is ok', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().status).to.eql('ok');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Operations",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{rest_url}}/operations"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('operations are returned', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().operations).to.be.an('array');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Operation - power",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{rest_url}}/operations/power"
+          }
+        },
+        {
+          "name": "Patch Operation - power cost",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cost\": 900,\n  \"enabled\": true\n}"
+            },
+            "url": "{{rest_url}}/operations/power"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('power was updated', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.name).to.eql('power');",
+                  "  pm.expect(body.cost).to.eql(900);",
+                  "  pm.expect(body.enabled).to.eql(true);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Disable Operation - power",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"enabled\": false\n}"
+            },
+            "url": "{{rest_url}}/operations/power"
+          }
+        },
+        {
+          "name": "Enable Operation - power",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"enabled\": true,\n  \"cost\": 1150\n}"
+            },
+            "url": "{{rest_url}}/operations/power"
+          }
+        }
+      ]
+    },
+    {
+      "name": "JSON-RPC",
+      "item": [
+        {
+          "name": "RPC Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{rpc_url}}/health"
+          }
+        },
+        {
+          "name": "Addition",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 1,\n  \"method\": \"addition\",\n  \"params\": {\n    \"a\": 5,\n    \"b\": 7,\n    \"session_id\": \"{{session_id}}\"\n  }\n}"
+            },
+            "url": "{{rpc_url}}/rpc"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('addition returns 12', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().result).to.eql(12);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Factorial",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 2,\n  \"method\": \"factorial\",\n  \"params\": {\n    \"n\": 5,\n    \"session_id\": \"{{session_id}}\"\n  }\n}"
+            },
+            "url": "{{rpc_url}}/rpc"
+          }
+        },
+        {
+          "name": "Power",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 3,\n  \"method\": \"power\",\n  \"params\": {\n    \"a\": 2,\n    \"b\": 8,\n    \"session_id\": \"{{session_id}}\"\n  }\n}"
+            },
+            "url": "{{rpc_url}}/rpc"
+          }
+        },
+        {
+          "name": "Batch Request",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "[\n  {\n    \"jsonrpc\": \"2.0\",\n    \"id\": 10,\n    \"method\": \"addition\",\n    \"params\": [1, 2, \"{{session_id}}\"]\n  },\n  {\n    \"jsonrpc\": \"2.0\",\n    \"id\": 11,\n    \"method\": \"multiplication\",\n    \"params\": [3, 4, \"{{session_id}}\"]\n  }\n]"
+            },
+            "url": "{{rpc_url}}/rpc"
+          }
+        },
+        {
+          "name": "JSON-RPC Notification - no response body",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"addition\",\n  \"params\": {\n    \"a\": 1,\n    \"b\": 1,\n    \"session_id\": \"{{session_id}}\"\n  }\n}"
+            },
+            "url": "{{rpc_url}}/rpc"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('notification returns 204', function () {",
+                  "  pm.response.to.have.status(204);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unknown Method",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 99,\n  \"method\": \"does_not_exist\",\n  \"params\": {\n    \"a\": 1,\n    \"b\": 2\n  }\n}"
+            },
+            "url": "{{rpc_url}}/rpc"
+          }
+        }
+      ]
+    },
+    {
+      "name": "WebSocket",
+      "description": "Open this as a WebSocket request in Postman with URL {{ws_url}}/ws. Send the listed JSON messages manually.",
+      "item": [
+        {
+          "name": "Connect to WebSocket",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{ws_url}}/ws",
+            "description": "After connecting, send: {\"action\":\"register\",\"session_id\":\"{{session_id}}\",\"threshold\":2500}. Then call JSON-RPC requests with the same session_id to receive threshold notifications."
+          }
+        },
+        {
+          "name": "WS Message - register with threshold",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{ws_url}}/ws",
+            "description": "Message to send over the WebSocket connection: {\"action\":\"register\",\"session_id\":\"{{session_id}}\",\"threshold\":2500}"
+          }
+        },
+        {
+          "name": "WS Message - update threshold",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{ws_url}}/ws",
+            "description": "Message to send over the WebSocket connection: {\"action\":\"set_threshold\",\"session_id\":\"{{session_id}}\",\"threshold\":5000}"
+          }
+        },
+        {
+          "name": "WS Message - ping",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{ws_url}}/ws",
+            "description": "Message to send over the WebSocket connection: {\"action\":\"ping\"}"
+          }
+        }
+      ]
+    }
+  ]
+}
