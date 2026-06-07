@@ -39,6 +39,78 @@ def create_app(router: RoundRobinRouter) -> FastAPI:
     async def health() -> Dict[str, object]:
         return {"status": "ok", "workers": router.workers()}
 
+    @app.get("/operations")
+    async def list_operations() -> Response:
+        target = await router.next_url()
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                upstream = await client.get(f"{target}/operations")
+        except httpx.HTTPError as error:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Worker {target} is unavailable.",
+            ) from error
+        return Response(
+            content=upstream.content,
+            status_code=upstream.status_code,
+            media_type=upstream.headers.get(
+                "content-type", "application/json"
+            ),
+        )
+
+    @app.get("/operations/{name}")
+    async def get_operation(name: str) -> Response:
+        target = await router.next_url()
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                upstream = await client.get(
+                    f"{target}/operations/{name}"
+                )
+        except httpx.HTTPError as error:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Worker {target} is unavailable.",
+            ) from error
+        return Response(
+            content=upstream.content,
+            status_code=upstream.status_code,
+            media_type=upstream.headers.get(
+                "content-type", "application/json"
+            ),
+        )
+
+    @app.put("/operations/{name}")
+    @app.patch("/operations/{name}")
+    async def update_operation(name: str, request: Request) -> Response:
+        body = await request.body()
+        content_type = request.headers.get(
+            "content-type", "application/json"
+        )
+        method = request.method.lower()
+        last_response = None
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            for url in router.workers():
+                try:
+                    upstream = await getattr(client, method)(
+                        f"{url}/operations/{name}",
+                        content=body,
+                        headers={"content-type": content_type},
+                    )
+                    last_response = upstream
+                except httpx.HTTPError:
+                    continue
+        if last_response is None:
+            raise HTTPException(
+                status_code=502, detail="All workers are unavailable."
+            )
+        return Response(
+            content=last_response.content,
+            status_code=last_response.status_code,
+            media_type=last_response.headers.get(
+                "content-type", "application/json"
+            ),
+        )
+
     @app.post("/rpc")
     async def rpc_gateway(request: Request) -> Response:
         target = await router.next_url()

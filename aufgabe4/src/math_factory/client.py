@@ -5,7 +5,7 @@ import asyncio
 import itertools
 import json
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 import httpx
 import websockets
@@ -76,10 +76,29 @@ async def _watch_notifications(websocket, stop_event: asyncio.Event, state: Noti
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Taylor-series client for the Math Factory server.")
-    parser.add_argument("--server-host", default="localhost", help="Math Factory server host name.")
+    parser.add_argument(
+        "--server-host",
+        default="localhost",
+        help="Fallback host for REST, RPC, and WebSocket endpoints.",
+    )
+    parser.add_argument(
+        "--rest-host",
+        default=None,
+        help="Host for REST/health (default: --server-host).",
+    )
+    parser.add_argument(
+        "--rpc-host",
+        default=None,
+        help="Host for JSON-RPC (default: --server-host).",
+    )
+    parser.add_argument(
+        "--ws-host",
+        default=None,
+        help="Host for WebSocket (default: --server-host).",
+    )
     parser.add_argument("--rest-port", type=int, default=8080, help="REST port of the server.")
     parser.add_argument("--rpc-port", type=int, default=8081, help="JSON-RPC port of the server.")
-    parser.add_argument("--ws-port", type=int, default=8082, help="WebSocket port of the server.")
+    parser.add_argument("--ws-port", type=int, default=8080, help="WebSocket port of the server.")
     parser.add_argument("--x", type=float, default=1.0, help="Input value x for e^x.")
     parser.add_argument("--terms", type=int, default=8, help="Number of Taylor terms N.")
     parser.add_argument(
@@ -108,10 +127,14 @@ async def _run_client() -> None:
     if args.terms < 0:
         raise SystemExit("--terms must be non-negative.")
 
-    rest_url = f"http://{args.server_host}:{args.rest_port}/health"
-    rpc_url = f"http://{args.server_host}:{args.rpc_port}/rpc"
-    rpc_health_url = f"http://{args.server_host}:{args.rpc_port}/health"
-    ws_url = f"ws://{args.server_host}:{args.ws_port}/ws"
+    rest_host = args.rest_host or args.server_host
+    rpc_host = args.rpc_host or args.server_host
+    ws_host = args.ws_host or args.server_host
+
+    rest_url = f"http://{rest_host}:{args.rest_port}/health"
+    rpc_url = f"http://{rpc_host}:{args.rpc_port}/rpc"
+    rpc_health_url = f"http://{rpc_host}:{args.rpc_port}/health"
+    ws_url = f"ws://{ws_host}:{args.ws_port}/ws"
 
     session_id = str(uuid.uuid4())
     stop_event = asyncio.Event()
@@ -124,7 +147,13 @@ async def _run_client() -> None:
 
         async with await _connect_websocket_with_retry(ws_url) as websocket:
             await websocket.send(
-                json.dumps({"action": "register", "session_id": session_id, "threshold": args.threshold})
+                json.dumps(
+                    {
+                        "action": "register",
+                        "app_id": session_id,
+                        "threshold": args.threshold,
+                    }
+                )
             )
 
             notification_state = NotificationState()
@@ -172,12 +201,15 @@ async def _run_client() -> None:
                     partial_sums.append({"n": n, "term": float(term), "sum": running_sum})
                     print(f"n={n:02d} term={float(term):.10f} partial_sum={running_sum:.10f}")
 
-                    if args.new_threshold is not None and n == args.new_threshold_after:
+                    if (
+                        args.new_threshold is not None
+                        and n == args.new_threshold_after
+                    ):
                         await websocket.send(
                             json.dumps(
                                 {
                                     "action": "set_threshold",
-                                    "session_id": session_id,
+                                    "app_id": session_id,
                                     "threshold": args.new_threshold,
                                 }
                             )

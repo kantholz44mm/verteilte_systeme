@@ -8,4 +8,8 @@ COPY src /app/src
 ENV PYTHONPATH=/app/src
 ENV PYTHONUNBUFFERED=1
 
-CMD ["python", "-m", "math_factory.client", "--server-host", "math-factory-server", "--terms", "8", "--threshold", "2500"]
+CMD ["python", "-m", "math_factory.client", \
+     "--rest-host", "data-manager", "--rest-port", "8080", \
+     "--rpc-host", "math-factory-gateway", "--rpc-port", "8081", \
+     "--ws-host", "data-manager", "--ws-port", "8080", \
+     "--terms", "8", "--threshold", "2500"]

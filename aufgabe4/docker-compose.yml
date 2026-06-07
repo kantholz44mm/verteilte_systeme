@@ -8,6 +8,12 @@ services:
       - "8080:8080"
     volumes:
       - math-factory-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8080/health')\""]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
 
   math-factory-worker-1:
     build:
@@ -18,7 +24,14 @@ services:
       INSTANCE_ID: mf-1
       DATA_MANAGER_URL: http://data-manager:8080
     depends_on:
-      - data-manager
+      data-manager:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8081/health')\""]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
 
   math-factory-worker-2:
     build:
@@ -29,7 +42,14 @@ services:
       INSTANCE_ID: mf-2
       DATA_MANAGER_URL: http://data-manager:8080
     depends_on:
-      - data-manager
+      data-manager:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8081/health')\""]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
 
   math-factory-worker-3:
     build:
@@ -40,7 +60,14 @@ services:
       INSTANCE_ID: mf-3
       DATA_MANAGER_URL: http://data-manager:8080
     depends_on:
-      - data-manager
+      data-manager:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8081/health')\""]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
 
   math-factory-gateway:
     build:
@@ -52,9 +79,18 @@ services:
     ports:
       - "8081:8081"
     depends_on:
-      - math-factory-worker-1
-      - math-factory-worker-2
-      - math-factory-worker-3
+      math-factory-worker-1:
+        condition: service_healthy
+      math-factory-worker-2:
+        condition: service_healthy
+      math-factory-worker-3:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8081/health')\""]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
 
   math-factory-client:
     build:
@@ -62,10 +98,12 @@ services:
       dockerfile: Dockerfile.client
     container_name: math-factory-client
     depends_on:
-      - math-factory-gateway
+      math-factory-gateway:
+        condition: service_healthy
+      data-manager:
+        condition: service_healthy
     environment:
       PYTHONPATH: /app/src
-      RPC_URL: http://math-factory-gateway:8081/rpc
 
 volumes:
   math-factory-data:

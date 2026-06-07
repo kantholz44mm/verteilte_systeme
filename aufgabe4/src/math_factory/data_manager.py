@@ -225,17 +225,82 @@ class DataManagerStore:
                 )
                 return self._snapshot_in_connection(connection, app_id).to_dict()
 
-    async def recent_operations(self, limit: int = 50) -> List[Dict[str, Any]]:
+    async def recent_operations(
+        self, limit: int = 50, app_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        async with self._lock:
+            with self._connect() as connection:
+                if app_id:
+                    rows = connection.execute(
+                        """
+                        SELECT app_id, operation, cost, instance_id,
+                               request_id, result, created_at_ms
+                        FROM ops.operation_log
+                        WHERE app_id = ?
+                        ORDER BY id DESC
+                        LIMIT ?
+                        """,
+                        (app_id, limit),
+                    ).fetchall()
+                else:
+                    rows = connection.execute(
+                        """
+                        SELECT app_id, operation, cost, instance_id,
+                               request_id, result, created_at_ms
+                        FROM ops.operation_log
+                        ORDER BY id DESC
+                        LIMIT ?
+                        """,
+                        (limit,),
+                    ).fetchall()
+        return [dict(row) for row in rows]
+
+    async def instance_stats(self) -> List[Dict[str, Any]]:
+        """Ops DB: per-instance aggregates (count, total cost, ops breakdown)."""
         async with self._lock:
             with self._connect() as connection:
                 rows = connection.execute(
                     """
-                    SELECT app_id, operation, cost, instance_id, request_id, created_at_ms
+                    SELECT
+                        instance_id,
+                        COUNT(*)            AS total_requests,
+                        SUM(cost)           AS total_cost,
+                        COUNT(DISTINCT app_id) AS distinct_apps
                     FROM ops.operation_log
+                    GROUP BY instance_id
+                    ORDER BY total_requests DESC
+                    """
+                ).fetchall()
+        return [dict(row) for row in rows]
+
+    async def app_operations(
+        self, app_id: str, limit: int = 50
+    ) -> List[Dict[str, Any]]:
+        """Cust DB: which operations an app requested, cost, and instance."""
+        async with self._lock:
+            with self._connect() as connection:
+                rows = connection.execute(
+                    """
+                    SELECT operation, cost, instance_id, request_id, created_at_ms
+                    FROM cust.charge_log
+                    WHERE app_id = ?
                     ORDER BY id DESC
                     LIMIT ?
                     """,
-                    (limit,),
+                    (app_id, limit),
+                ).fetchall()
+        return [dict(row) for row in rows]
+
+    async def all_apps(self) -> List[Dict[str, Any]]:
+        """Cust DB: statistics for every known application."""
+        async with self._lock:
+            with self._connect() as connection:
+                rows = connection.execute(
+                    """
+                    SELECT app_id, total_cost, threshold, threshold_exceeded
+                    FROM cust.applications
+                    ORDER BY total_cost DESC
+                    """
                 ).fetchall()
         return [dict(row) for row in rows]
 
@@ -304,13 +369,45 @@ def create_app(store: DataManagerStore, manager: Optional[ConnectionManager] = N
     async def set_threshold(app_id: str, request: ThresholdRequest) -> Dict[str, Any]:
         snapshot = await store.set_threshold(app_id, request.threshold)
         await connection_manager.publish(app_id, {"type": "threshold_updated", **snapshot})
+        if snapshot["threshold_exceeded"]:
+            await connection_manager.publish(
+                app_id,
+                {
+                    "type": "threshold_exceeded",
+                    **snapshot,
+                    "message": "Der konfigurierte Kostenschwellwert wurde überschritten.",
+                },
+            )
         return snapshot
 
     @app.get("/operations")
-    async def recent_operations(limit: int = 50) -> Dict[str, Any]:
+    async def recent_operations(
+        limit: int = 50, app_id: Optional[str] = None
+    ) -> Dict[str, Any]:
         if limit < 1 or limit > 500:
-            raise HTTPException(status_code=400, detail="limit must be between 1 and 500")
-        return {"operations": await store.recent_operations(limit)}
+            raise HTTPException(
+                status_code=400, detail="limit must be between 1 and 500"
+            )
+        return {"operations": await store.recent_operations(limit, app_id=app_id)}
+
+    @app.get("/instances/stats")
+    async def instance_stats() -> Dict[str, Any]:
+        return {"instances": await store.instance_stats()}
+
+    @app.get("/apps")
+    async def all_apps() -> Dict[str, Any]:
+        return {"apps": await store.all_apps()}
+
+    @app.get("/apps/{app_id}/operations")
+    async def app_operations(app_id: str, limit: int = 50) -> Dict[str, Any]:
+        if limit < 1 or limit > 500:
+            raise HTTPException(
+                status_code=400, detail="limit must be between 1 and 500"
+            )
+        return {
+            "app_id": app_id,
+            "operations": await store.app_operations(app_id, limit),
+        }
 
     @app.post("/events/operation")
     async def operation_event(event: OperationEvent) -> Dict[str, Any]:
@@ -342,8 +439,23 @@ def create_app(store: DataManagerStore, manager: Optional[ConnectionManager] = N
                 app_id = next_app_id
                 await connection_manager.add(app_id, websocket)
                 if "threshold" in message:
-                    snapshot = await store.set_threshold(app_id, int(message["threshold"]))
-                    await websocket.send_json({"type": "threshold_updated", **snapshot})
+                    snapshot = await store.set_threshold(
+                        app_id, int(message["threshold"])
+                    )
+                    await websocket.send_json(
+                        {"type": "threshold_updated", **snapshot}
+                    )
+                    if snapshot["threshold_exceeded"]:
+                        await websocket.send_json(
+                            {
+                                "type": "threshold_exceeded",
+                                **snapshot,
+                                "message": (
+                                    "Der konfigurierte Kostenschwellwert"
+                                    " wurde überschritten."
+                                ),
+                            }
+                        )
                 else:
                     snapshot = await store.snapshot(app_id)
                 if action == "register":

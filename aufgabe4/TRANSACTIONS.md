@@ -1,42 +1,60 @@
 # Transaktionsmodell
 
+## Architektur-Hinweis
+
+Die Worker greifen **nicht** direkt auf Datenbanken zu. Jeder Worker:
+
+1. Führt die Rechenoperation im Arbeitsspeicher aus.
+2. Sendet ein `operation_charged`-Event per HTTP-POST an den Data Manager.
+
+Der Data Manager übernimmt **alle** Datenbankzugriffe und schreibt Ops DB und
+Cust DB atomisch in einer gemeinsamen Transaktion (SQLite `ATTACH DATABASE`).
+WebSocket-Benachrichtigungen werden **nach** dem Commit verschickt und sind
+daher kein Teil der Datenbanktransaktion.
+
 ## Datenobjekte
 
-- `O_i`: Ops-DB-Eintrag für Operation `i`
-- `C_a`: Customer-DB-Zustand der Anwendung `a`, vor allem `total_cost`, `threshold`, `threshold_exceeded`
-- `N_a`: Notification-Ereignis für Anwendung `a`
+- `O_i`: Eintrag in `ops.operation_log` für Operation `i`
+- `C_a`: Zustand der Anwendung `a` in `cust.applications`
+  (Felder: `total_cost`, `threshold`, `threshold_exceeded`)
+- `L_i`: Eintrag in `cust.charge_log` für Operation `i`
 
 ## Transaktionen
 
-`T1`: Worker `mf-1` führt `addition` für Anwendung `demo-app` aus.
+`T1`: Data Manager verarbeitet `addition`-Event von Worker mf-1 für `demo-app`.
 
 ```text
 r1(C_demo)
 w1(O_1)
+w1(L_1)
 w1(C_demo.total_cost = C_demo.total_cost + 2)
 c1
+--- nach Commit: keine WS-Benachrichtigung (Threshold nicht überschritten) ---
 ```
 
-`T2`: Data Manager setzt den Threshold für `demo-app`.
+`T2`: Client setzt den Threshold für `demo-app` via REST `PUT /apps/demo-app/threshold`.
 
 ```text
 r2(C_demo)
 w2(C_demo.threshold = 100)
 c2
+--- nach Commit: WS-Nachricht "threshold_updated" ---
 ```
 
-`T3`: Worker `mf-2` führt `power` für `demo-app` aus und überschreitet den Threshold.
+`T3`: Data Manager verarbeitet `power`-Event von Worker mf-2 für `demo-app`;
+Threshold wird überschritten.
 
 ```text
 r3(C_demo)
 w3(O_2)
+w3(L_2)
 w3(C_demo.total_cost = C_demo.total_cost + 1150)
 w3(C_demo.threshold_exceeded = true)
-w3(N_demo)
 c3
+--- nach Commit: WS-Nachricht "threshold_exceeded" ---
 ```
 
-`T4`: Anwendung fragt Kosten ab.
+`T4`: Client fragt Kosten ab via REST `GET /apps/demo-app/costs`.
 
 ```text
 r4(C_demo)
@@ -45,52 +63,54 @@ c4
 
 ## Beispiel-History
 
-Eine serialisierbare Ausführung:
+Eine serialisierbare Ausführung (seriell):
 
 ```text
 H =
-r1(C_demo)
-w1(O_1)
-w1(C_demo.total_cost)
-c1
-r2(C_demo)
-w2(C_demo.threshold)
-c2
-r3(C_demo)
-w3(O_2)
-w3(C_demo.total_cost)
-w3(C_demo.threshold_exceeded)
-w3(N_demo)
-c3
-r4(C_demo)
-c4
+r1(C_demo) w1(O_1) w1(L_1) w1(C_demo.total_cost) c1
+r2(C_demo) w2(C_demo.threshold) c2
+r3(C_demo) w3(O_2) w3(L_2) w3(C_demo.total_cost) w3(C_demo.threshold_exceeded) c3
+r4(C_demo) c4
 ```
 
 ## Konflikte
 
-- `T1 -> T2`, weil `T1` `C_demo.total_cost` schreibt und `T2` danach `C_demo` liest.
-- `T2 -> T3`, weil `T2` `C_demo.threshold` schreibt und `T3` danach `C_demo` liest.
-- `T3 -> T4`, weil `T3` `C_demo.total_cost` und `C_demo.threshold_exceeded` schreibt und `T4` danach `C_demo` liest.
+| Von | Nach | Grund |
+|-----|------|-------|
+| T1  | T3   | T1 schreibt `C_demo.total_cost`, T3 liest danach `C_demo` (rw-Konflikt) |
+| T2  | T3   | T2 schreibt `C_demo.threshold`, T3 liest danach `C_demo` (rw-Konflikt) |
+| T3  | T4   | T3 schreibt `C_demo.*`, T4 liest danach `C_demo` (rw-Konflikt) |
+
+T1 und T2 haben keinen Konflikt untereinander (sie schreiben in disjunkte
+Felder von `C_demo` und lesen diese nicht wechselseitig).
 
 ## Serialisierungsgraph
 
 ```text
-T1 ---> T2 ---> T3 ---> T4
+T1 ---> T3 ---> T4
+T2 ---> T3
 ```
 
-Der Graph enthält keine Zyklen. Die History ist daher konfliktserialisierbar und äquivalent zur seriellen Reihenfolge:
+Der Graph enthält keine Zyklen. Die History ist konfliktserialisierbar und
+äquivalent zu mindestens einer der seriellen Reihenfolgen:
 
-```text
-T1, T2, T3, T4
-```
+- T1, T2, T3, T4
+- T2, T1, T3, T4
 
 ## Konsistenz über Ops DB und Cust DB
 
-Pro Rechenoperation schreibt der Data Manager:
+Pro Rechenoperation schreibt der Data Manager in einer einzigen atomaren
+Transaktion:
 
-1. einen fachlichen Operationseintrag in die Ops DB,
-2. einen Charge-Eintrag in die Cust DB,
-3. den aggregierten Kostenstand der Anwendung in die Cust DB,
-4. optional den Threshold-Status.
+1. `ops.operation_log` ← fachlicher Operationseintrag (Ops DB)
+2. `cust.charge_log` ← Abrechnungseintrag (Cust DB)
+3. `cust.applications.total_cost` ← aktualisierter Kostenstand (Cust DB)
+4. `cust.applications.threshold_exceeded` ← ggf. Threshold-Flag (Cust DB)
 
-Diese Schritte laufen in einer gemeinsamen Transaktion. In der lokalen Implementierung wird SQLite mit `ATTACH DATABASE` genutzt. Für echte Multi-Node-Transaktionen ist CockroachDB die naheliegende Wahl, weil es verteilte SQL-Transaktionen mit serialisierbarer Isolation unterstützt.
+Durch den Einsatz von SQLite `ATTACH DATABASE` mit `BEGIN IMMEDIATE` werden
+beide Dateien (`ops.sqlite3` und `cust.sqlite3`) in derselben Transaktion
+geschrieben. Ein Partial-Write ist damit ausgeschlossen.
+
+Für echte Multi-Node-Transaktionen ist CockroachDB die passende Wahl, da es
+verteilte SQL-Transaktionen mit serialisierbarer Isolation über mehrere Knoten
+unterstützt.

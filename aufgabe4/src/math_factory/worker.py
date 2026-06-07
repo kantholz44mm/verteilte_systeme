@@ -6,9 +6,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 import uvicorn
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 
+from .operations import DEFAULT_OPERATION_DEFINITIONS
 from .rpc import process_jsonrpc_bytes_with_notifications
+from .schemas import OperationUpdateRequest
 from .state import MathFactoryState
 
 
@@ -18,11 +20,24 @@ class AccountingMathFactoryState(MathFactoryState):
         self.instance_id = instance_id
 
     def execute_with_notifications(
-        self, name: str, arguments: List[object], session_id: Optional[str] = None
+        self,
+        name: str,
+        arguments: List[object],
+        session_id: Optional[str] = None,
     ) -> Tuple[Any, List[Dict[str, object]]]:
-        result, notifications = super().execute_with_notifications(name, arguments, session_id=session_id)
+        definition = DEFAULT_OPERATION_DEFINITIONS.get(name)
+        if definition is None:
+            raise KeyError(name)
+        with self._lock:
+            config = self._operations.get(name)
+            if config is None:
+                raise KeyError(name)
+            if not config["enabled"]:
+                raise RuntimeError(name)
+            cost = int(config["cost"])
+        result = definition["evaluator"](*arguments)
+        notifications: List[Dict[str, object]] = []
         if session_id is not None:
-            cost = int(self.get_operation(name)["cost"])
             notifications.append(
                 {
                     "type": "operation_charged",
@@ -75,6 +90,31 @@ def create_app(state: AccountingMathFactoryState, data_manager: DataManagerClien
     @app.get("/health")
     async def health() -> Dict[str, str]:
         return {"status": "ok", "instance_id": state.instance_id}
+
+    @app.get("/operations")
+    async def list_operations() -> Dict[str, Any]:
+        return {"operations": state.list_operations()}
+
+    @app.get("/operations/{name}")
+    async def get_operation(name: str) -> Dict[str, Any]:
+        try:
+            return state.get_operation(name)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Unknown operation.")
+
+    @app.put("/operations/{name}")
+    @app.patch("/operations/{name}")
+    async def update_operation(
+        name: str, update: OperationUpdateRequest
+    ) -> Dict[str, Any]:
+        try:
+            return state.update_operation(
+                name, **update.model_dump(exclude_none=True)
+            )
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Unknown operation.")
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error))
 
     @app.post("/rpc")
     async def rpc_endpoint(request: Request) -> Response:

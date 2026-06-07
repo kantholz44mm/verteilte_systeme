@@ -10,6 +10,12 @@ services:
         mode: ingress
     volumes:
       - math-factory-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8080/health')\""]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
     networks:
       - math-factory-net
 
@@ -19,6 +25,16 @@ services:
       DATA_MANAGER_URL: http://data-manager:8080
     deploy:
       replicas: 3
+      # dnsrr makes the service hostname resolve to individual task IPs so the
+      # gateway's RoundRobinRouter actually cycles across replicas instead of
+      # hitting the single Swarm VIP every time.
+      endpoint_mode: dnsrr
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8081/health')\""]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
     networks:
       - math-factory-net
 
@@ -33,6 +49,12 @@ services:
         mode: ingress
     deploy:
       replicas: 1
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8081/health')\""]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
     networks:
       - math-factory-net
 
