@@ -24,9 +24,9 @@ daher kein Teil der Datenbanktransaktion.
 `T1`: Data Manager verarbeitet `addition`-Event von Worker mf-1 für `demo-app`.
 
 ```text
-r1(C_demo)
 w1(O_1)
 w1(L_1)
+r1(C_demo)
 w1(C_demo.total_cost = C_demo.total_cost + 2)
 c1
 --- nach Commit: keine WS-Benachrichtigung (Threshold nicht überschritten) ---
@@ -37,6 +37,7 @@ c1
 ```text
 r2(C_demo)
 w2(C_demo.threshold = 100)
+w2(C_demo.threshold_exceeded)
 c2
 --- nach Commit: WS-Nachricht "threshold_updated" ---
 ```
@@ -45,9 +46,9 @@ c2
 Threshold wird überschritten.
 
 ```text
-r3(C_demo)
 w3(O_2)
 w3(L_2)
+r3(C_demo)
 w3(C_demo.total_cost = C_demo.total_cost + 1150)
 w3(C_demo.threshold_exceeded = true)
 c3
@@ -67,9 +68,9 @@ Eine serialisierbare Ausführung (seriell):
 
 ```text
 H =
-r1(C_demo) w1(O_1) w1(L_1) w1(C_demo.total_cost) c1
-r2(C_demo) w2(C_demo.threshold) c2
-r3(C_demo) w3(O_2) w3(L_2) w3(C_demo.total_cost) w3(C_demo.threshold_exceeded) c3
+w1(O_1) w1(L_1) r1(C_demo) w1(C_demo.total_cost) c1
+r2(C_demo) w2(C_demo.threshold) w2(C_demo.threshold_exceeded) c2
+w3(O_2) w3(L_2) r3(C_demo) w3(C_demo.total_cost) w3(C_demo.threshold_exceeded) c3
 r4(C_demo) c4
 ```
 
@@ -77,25 +78,22 @@ r4(C_demo) c4
 
 | Von | Nach | Grund |
 |-----|------|-------|
+| T1  | T2   | T1 schreibt `C_demo.total_cost`, T2 liest danach `C_demo` (rw-Konflikt) |
 | T1  | T3   | T1 schreibt `C_demo.total_cost`, T3 liest danach `C_demo` (rw-Konflikt) |
 | T2  | T3   | T2 schreibt `C_demo.threshold`, T3 liest danach `C_demo` (rw-Konflikt) |
 | T3  | T4   | T3 schreibt `C_demo.*`, T4 liest danach `C_demo` (rw-Konflikt) |
 
-T1 und T2 haben keinen Konflikt untereinander (sie schreiben in disjunkte
-Felder von `C_demo` und lesen diese nicht wechselseitig).
-
 ## Serialisierungsgraph
 
 ```text
-T1 ---> T3 ---> T4
-T2 ---> T3
+T1 ---> T2 ---> T3 ---> T4
+T1 ---> T3
 ```
 
 Der Graph enthält keine Zyklen. Die History ist konfliktserialisierbar und
-äquivalent zu mindestens einer der seriellen Reihenfolgen:
+äquivalent zur seriellen Reihenfolge:
 
 - T1, T2, T3, T4
-- T2, T1, T3, T4
 
 ## Konsistenz über Ops DB und Cust DB
 
